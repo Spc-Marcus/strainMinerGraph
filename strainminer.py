@@ -163,7 +163,7 @@ def pre_processing(X_matrix, min_col_quality=3):
                 regions.append(cols)
                 _high_quality_hca_prestrip_stats_collection.append(
                     BinMatrixStats.from_bin_dataframe(
-                        matrix[:, c],
+                        matrix[:, cols],
                     )
                 )
             else:
@@ -581,14 +581,14 @@ def biclustering_full_matrix(
                                     0,
                                     bipart_log.BiPartClass.ZERO,
                                     BinMatrixStats.from_bin_dataframe(
-                                        X_matrix[reads0:, cols]
+                                        X_matrix[np.ix_(reads0, cols)]
                                     ),
                                 ),
                                 bipart_log.BiPartStats(
                                     1,
                                     bipart_log.BiPartClass.ONE,
                                     BinMatrixStats.from_bin_dataframe(
-                                        X_matrix[reads1:, cols]
+                                        X_matrix[np.ix_(reads1, cols)]
                                     ),
                                 ),
                             ],
