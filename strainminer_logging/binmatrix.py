@@ -44,12 +44,12 @@ class BinMatrixStats:
     @classmethod
     def from_bin_dataframe(cls, df: pd.DataFrame) -> BinMatrixStats:
         """Create from bin dataframe."""
-        number_of_ones = (df == 1).sum().sum()
-        number_of_zeros = (df == 0).sum().sum()
-        number_of_cells = df.shape[0] * df.shape[1]
+        number_of_ones = int((df == 1).sum().sum())
+        number_of_zeros = int((df == 0).sum().sum())
+        number_of_cells = int(df.shape[0]) * int(df.shape[1])
         return cls(
-            df.shape[0],
-            df.shape[1],
+            int(df.shape[0]),
+            int(df.shape[1]),
             number_of_ones,
             number_of_zeros,
             number_of_ones / number_of_cells,
