@@ -47,6 +47,8 @@ class BinMatrixStats:
         number_of_ones = int((df == 1).sum().sum())
         number_of_zeros = int((df == 0).sum().sum())
         number_of_cells = int(df.shape[0]) * int(df.shape[1])
+        if number_of_cells == 0:
+            return cls(df.shape[0], df.shape[1], 0, 0, 0.0, 0.0)
         return cls(
             int(df.shape[0]),
             int(df.shape[1]),
