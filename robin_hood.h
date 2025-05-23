@@ -47,6 +47,8 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <cstdint>
+
 #include <stdexcept>
 #include <limits>
 #if __cplusplus >= 201703L
