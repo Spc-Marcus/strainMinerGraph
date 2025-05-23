@@ -82,6 +82,7 @@ test_*
 #output
 output/
 output_strainminer/
+output.txt
 
 # backup files
 *.bak
@@ -92,3 +93,7 @@ output_strainminer/
 # IDE specific files
 .idea/
 *.iml
+
+#autre
+
+*.ide

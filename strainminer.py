@@ -5,6 +5,7 @@ Authors: Tam Khac Min Truong, Roland Faure
 
 __version__ = '1.0.0'
 
+import json
 import pandas as pd 
 import numpy as np
 import sys
@@ -25,9 +26,9 @@ from sklearn.metrics import pairwise_distances
 # }
 
 options = {
-	"WLSACCESSID":"xxxxxx",
-	"WLSSECRET":"xxxxxx",
-	"LICENSEID":000000
+	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
+	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
+	"LICENSEID":2669217
 }
 
 import time
@@ -88,7 +89,7 @@ def pre_processing(X_matrix, min_col_quality = 3):
     steps = []
     
     if m>5 and n > 15:
-        agglo=FeatureAgglomeration(n_clusters=None,metric = 'hamming', linkage = 'complete',distance_threshold=0.35)
+        agglo=FeatureAgglomeration(n_clusters=None, metric='hamming', linkage='complete', distance_threshold=0.35)
         agglo.fit(matrix)
         labels = (agglo.labels_)
         splitted_cols = {}
@@ -106,7 +107,7 @@ def pre_processing(X_matrix, min_col_quality = 3):
             ##threshold, then take only the significant clusters
             if len(cols) > 15:
                 matrix_reg = matrix[:,cols].copy()
-                agglo=FeatureAgglomeration(n_clusters=None,metric = 'hamming', linkage = 'complete',distance_threshold=0.025)
+                agglo=FeatureAgglomeration(n_clusters=None, metric='hamming', linkage='complete', distance_threshold=0.025)
                 agglo.fit(matrix_reg)
                 labels = (agglo.labels_)
                 groups = {}
@@ -133,7 +134,7 @@ def pre_processing(X_matrix, min_col_quality = 3):
                 inhomogenious_regions.append(region)
             else:
                 ###cut into 2 regions of 1 and 0
-                agglo = AgglomerativeClustering(n_clusters = 2, metric = 'hamming', linkage = 'complete')
+                agglo = AgglomerativeClustering(n_clusters=2, metric='hamming', linkage='complete')
                 agglo.fit(matrix_reg)  
                 labels = agglo.labels_  
                 cluster1,cluster0 = [],[]
@@ -207,7 +208,7 @@ def quasibiclique(X_matrix, error_rate = 0.025):
         model.addConstr(1 - lpCols[cell[1]] >= lpCells[cell], f'{cell}_cc')
         model.addConstr(1 - lpRows[cell[0]] - lpCols[cell[1]]<= lpCells[cell], f'{cell}_ccr')
         
-    model.addConstr(error_rate*grb.quicksum(lpCells) >= grb.quicksum(
+    model.addConstr(error_rate*lpCells.sum() >= grb.quicksum(
             [lpCells[coord]*(1-X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
     
     model.optimize()
@@ -244,7 +245,7 @@ def quasibiclique(X_matrix, error_rate = 0.025):
         model.addConstr(1 - lpCols[cell[1]] >= lpCells[cell], f'{cell}_cc')
         model.addConstr(1 - lpRows[cell[0]] - lpCols[cell[1]]<= lpCells[cell], f'{cell}_ccr')
         
-    model.addConstr(error_rate*grb.quicksum(lpCells) >= grb.quicksum(
+    model.addConstr(error_rate*lpCells.sum() >= grb.quicksum(
             [lpCells[coord]*(1-X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
     
     model.optimize()
@@ -279,7 +280,7 @@ def quasibiclique(X_matrix, error_rate = 0.025):
         model.addConstr(1 - lpCols[cell[1]] >= lpCells[cell], f'{cell}_cc')
         model.addConstr(1 - lpRows[cell[0]] - lpCols[cell[1]]<= lpCells[cell], f'{cell}_ccr')
     
-    model.addConstr(error_rate*grb.quicksum(lpCells) >= grb.quicksum(
+    model.addConstr(error_rate*lpCells.sum() >= grb.quicksum(
             [lpCells[coord]*(1-X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
     
     
@@ -360,10 +361,11 @@ def binary_clustering_step(X_matrix, error_rate = 0.025, min_row_quality = 5, mi
 
 def biclustering_full_matrix(X_matrix, regions, steps, min_row_quality = 5, min_col_quality = 3,error_rate = 0.025):
     #Iteratively single step cluster through the whole matrix
-    print('Clustering', len(regions), 'regions')
+    #print('Clustering', len(regions), 'regions')
     steps_result = steps
     if len(regions)>0:
-        print('Clustering region: ', end= "")
+        pass
+        #print('Clustering region: ', end= "")
     for idx,region in enumerate(regions):   
         remain_cols = region
         
@@ -380,9 +382,10 @@ def biclustering_full_matrix(X_matrix, regions, steps, min_row_quality = 5, min_
                 else:
                     steps_result.append((reads1,reads0,cols))
                     remain_cols = [c for c in remain_cols if c not in cols]
-        print(idx+1, end = " finished ")
+        #print(idx+1, end = " finished ")
     if len(regions)>0:
-        print()                           
+        pass
+        #print()                           
     return [step for step in steps_result if len(step[0])>0 and len(step[1])>0 and len(step[2])>=min_col_quality]
 
 def post_processing(X_matrix, steps, read_names,distance_thresh = 0.1): 
@@ -505,7 +508,7 @@ def parse_arguments():
 
 if __name__ == '__main__':
 
-    print('StrainMiner version ', __version__)
+    #print('StrainMiner version ', __version__)
 
     file_path,  error_rate, out, window, readsFile, originalAssembly = parse_arguments()
     #mkdir out
@@ -524,14 +527,13 @@ if __name__ == '__main__':
     file = ps.AlignmentFile(file_path,'rb')
     contigs = (file.header.to_dict())['SQ']
     if len(contigs) == 0:
-        print('ERROR: No contigs found when parsing the BAM file, check the bam file and the indexation of the bam file')
+        #print('ERROR: No contigs found when parsing the BAM file, check the bam file and the indexation of the bam file')
         sys.exit(1)
     for num in range(0,len(contigs)):
         contig_name = contigs[num]['SN']
         contig_length = contigs[num]['LN']
 
-        print(contig_name, contig_length, ' length')
-        window = 5000
+        #print(contig_name, contig_length, ' length')
         filtered_col_threshold = 0.6
         min_row_quality = 5
         min_col_quality = 3
@@ -546,13 +548,17 @@ if __name__ == '__main__':
             if start_pos+window <= contig_length:
                 # sol_file.write(f'CONTIG\t{contig_name} {start_pos}<->{start_pos+window} \n')
 
-                print(f'Parsing data on contig {contig_name} {start_pos}<->{start_pos+window}')
+                #print(f'Parsing data on contig {contig_name} {start_pos}<->{start_pos+window}')
                 dict_of_sus_pos = get_data(file, contig_name,start_pos,start_pos+window)
             else : 
                 # sol_file.write(f'CONTIG\t{contig_name} {start_pos}<->{contig_length} \n')
 
-                print(f'Parsing data on contig  {contig_name} {start_pos}<->{contig_length}')
+                #print(f'Parsing data on contig  {contig_name} {start_pos}<->{contig_length}')
                 dict_of_sus_pos = get_data(file, contig_name,start_pos,contig_length)
+            
+            ### save adans un fichier dict_of_sus_pos
+            with open(os.path.join(tmp_dir, f"dict_of_sus_pos_{contig_name}_{start_pos}.json"), "w", encoding="utf-8") as f:
+                json.dump(dict_of_sus_pos, f, ensure_ascii=False, indent=2)
 
 
             ###create a matrix from the columns
@@ -568,7 +574,7 @@ if __name__ == '__main__':
             ###clustering
             if len(dict_of_sus_pos) > 0 :
                 X_matrix = df.to_numpy()
-                print(X_matrix.shape)
+                #print(X_matrix.shape)
                 matrix,regions,steps = pre_processing(X_matrix,min_col_quality)
                 steps = biclustering_full_matrix(matrix, regions, steps, min_row_quality, min_col_quality,error_rate=0.025)
                 clusters = post_processing(matrix, steps, reads,distance_thresh = 0.05)
@@ -586,9 +592,9 @@ if __name__ == '__main__':
                             list_of_reads.append(read)
                         haplotypes_here[index_of_reads[read]] = idx
 
-                print('Found', len(clusters), 'groups')
+                #print('Found', len(clusters), 'groups')
             else:
-                print('No haplotypes found')
+                #print('No haplotypes found')
                 for read in df.index:
                     reads_.append(read)
                     labels_.append(-1)
@@ -608,13 +614,36 @@ if __name__ == '__main__':
             
             # sol_file.write(f'\n')   
             end = time.time()
-            print('Elapsed time', end - start)
+            #print('Elapsed time', end - start)
 
 
         #now write the output file
         sol_file.write(f'CONTIG\t{contig_name}\t{contig_length}\t1\n')
-        for r in list_of_reads :
-            sol_file.write(f'READ\t{r}\t-1\t-1\t-1\t-1\t-1\n')
+        
+        read_positions = {}
+        for read in file.fetch():
+            read_name = read.query_name
+            if read_name in list_of_reads:
+                if read.query_alignment_start is not None and read.query_alignment_end is not None:
+                    start_read = read.query_alignment_start
+                    end_read = read.query_alignment_end
+                else:
+                    start_read = 0
+                    end_read = read.query_length
+                start_contig = read.reference_start
+                end_contig = read.reference_end
+                strand = 0 if read.is_reverse else 1
+                read_positions[read_name] = (start_read, end_read, start_contig, end_contig, strand)
+
+        for r in list_of_reads:
+            if r in read_positions:
+                start_read, end_read, start_contig, end_contig, strand = read_positions[r]
+                sol_file.write(f'READ\t{r}\t{start_read}\t{end_read}\t{start_contig}\t{end_contig}\t{strand}\n')
+            else:
+                # Fallback si le read n'est pas trouvé dans l'alignement
+                sol_file.write(f'READ\t{r}\t-1\t-1\t-1\t-1\t-1\n')
+        print("haplotypes", haplotypes,"#############\n")
+
         for w in range(len(haplotypes)):
             sol_file.write(f'GROUP\t{w*window}\t{min(contig_length, (w+1)*window)}\t')
             haplotypes_list = [-2 for i in range(len(list_of_reads))]
@@ -636,7 +665,6 @@ if __name__ == '__main__':
     polisher = "racon"
     technology = "ont"
     nb_threads = 1
-    zipped_GFA = tmp_dir + "/zipped_assembly.gfa"
     path_to_src = sys.argv[0].split("strainminer.py")[0]+"/"
 
     if path_to_src == "/":
@@ -659,22 +687,22 @@ if __name__ == '__main__':
         + gaffile +  " " \
         + polisher + " " \
         + polish_everything \
-        + " minimap2 racon  medaka  samtools  python 0 "
-    print(" Running : ", command)
-    res_create_new_contigs = os.system(command)
+        + " minimap2 racon medaka  samtools  python 1 "
+    print("Running command:", command)
+    res_create_new_contigs = os.system(command + " > " + tmp_dir + "/create_new_contigs.log 2>&1")
     if res_create_new_contigs != 0:
-        print("ERROR: create_new_contigs failed. Was trying to run: " + command)
+        print("ERROR: create_new_contigs failed")
         sys.exit(1)
 
 
     outfile = out.rstrip('/') + "/strainminer_final_assembly.gfa"
-
+    
     meta = " --meta"
     # if args.multiploid :
     #     meta = ""
 
     command = "python " + path_to_src + "GraphUnzip/graphunzip.py unzip -l " + gaffile + " -g " + zipped_GFA + " -o " + outfile + " 2>"+tmp_dir+"/logGraphUnzip.txt >"+tmp_dir+"/trash.txt";
-    print( " - Running GraphUnzip with command line:\n     ", command, "\n   The log of GraphUnzip is written on ",tmp_dir+"/logGraphUnzip.txt\n")
+    #print( " - Running GraphUnzip with command line:\n     ", command, "\n   The log of GraphUnzip is written on ",tmp_dir+"/logGraphUnzip.txt\n")
     resultGU = os.system(command)
     if resultGU != 0 :
         print( "ERROR: GraphUnzip failed. Please check the output of GraphUnzip in "+tmp_dir+"/logGraphUnzip.txt" )
