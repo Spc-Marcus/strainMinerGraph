@@ -1,6 +1,7 @@
 import os
 import sys
 from .core import __version__, file_path, get_data, pre_processing, biclustering_full_matrix, post_processing
+import argparse
 
 def init(assembly_file, bam_file, reads_file, output_folder, 
          error_rate=0.025, window=5000):
@@ -54,14 +55,29 @@ def init(assembly_file, bam_file, reads_file, output_folder,
     
     return os.system(' '.join(cmd))
 
-# Exemple d'utilisation reste inchangé
-if __name__ == "__main__":
-    # Paramètres d'exemple - à remplacer par vos valeurs
-    init(
-        assembly_file="test_datasets/test_1/target.gfa",
-        bam_file="test_datasets/test_1/alignment.bam", 
-        reads_file="test_datasets/test_1/reads.fastq",
-        output_folder="output_strainminer",
-        error_rate=0.025,
-        window=5000
+def main():
+    """
+    Point d'entrée pour la ligne de commande.
+    Parse les arguments et appelle la fonction init().
+    """
+    parser = argparse.ArgumentParser(description=f'StrainMiner version {__version__}')
+    parser.add_argument('-a', '--assembly', required=True, help='Fichier d\'assemblage au format GFA')
+    parser.add_argument('-b', '--bam', required=True, help='Fichier d\'alignement au format BAM')
+    parser.add_argument('-r', '--reads', required=True, help='Fichier de lectures')
+    parser.add_argument('-o', '--output', required=True, help='Dossier de sortie')
+    parser.add_argument('-e', '--error-rate', type=float, default=0.025, help='Taux d\'erreur (défaut: 0.025)')
+    parser.add_argument('-w', '--window', type=int, default=5000, help='Taille de la fenêtre (défaut: 5000)')
+    
+    args = parser.parse_args()
+    
+    return init(
+        assembly_file=args.assembly,
+        bam_file=args.bam,
+        reads_file=args.reads,
+        output_folder=args.output,
+        error_rate=args.error_rate,
+        window=args.window
     )
+
+if __name__ == "__main__":
+    sys.exit(main())

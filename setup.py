@@ -36,7 +36,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'strainminer=strainminer.__main__:init',
+            'strainminer=strainminer.__main__:main',
             'strainminer-gui=strainminer.ui:run_app',
         ],
     },
