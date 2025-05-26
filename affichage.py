@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import matplotlib.colors as mcolors
+import json
+import bitarray_heapsort
 
 
 
@@ -71,8 +72,8 @@ def plot_matrix(matrix, regions):
     plt.ylim(0, matrix.shape[0])  # Normal orientation (not inverted)
     
     # Add axis labels
-    plt.xlabel('Columns')
-    plt.ylabel('Rows')
+    plt.xlabel('Sus-pos')
+    plt.ylabel('Reads')
     
     plt.grid(False)
     plt.tight_layout()
@@ -104,3 +105,50 @@ def create_masque(matrix, regions):
 
 #plot_matrix(m, regions2)
 
+
+def get_matrix_from_json(file_path):
+    """
+    Convertit les données JSON en une matrice NumPy.
+    Les positions sont en abscisse (colonnes), les reads en ordonnée (lignes).
+    Si une valeur est absente pour un read, elle sera -1.
+    """
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    
+    # Extraire tous les identifiants de reads uniques
+    read_ids = set()
+    for position_data in data.values():
+        read_ids.update(position_data.keys())
+    
+    # Trier les reads et les positions pour une matrice cohérente
+    sorted_read_ids = sorted(read_ids, key=lambda x: int(x.split('_')[1]) if '_' in x else 0)
+    sorted_positions = sorted(data.keys(), key=int)
+    
+    # Créer la matrice vide (lignes: reads, colonnes: positions), initialisée à -1
+    matrix = np.full((len(sorted_read_ids), len(sorted_positions)), 0, dtype=np.uint8)
+    
+    # Remplir la matrice
+    for j, position in enumerate(sorted_positions):
+        position_data = data[position]
+        for i, read_id in enumerate(sorted_read_ids):
+            if read_id in position_data:
+                matrix[i, j] = position_data[read_id]
+    
+    # Créer un dictionnaire de mapping pour faciliter l'interprétation
+    position_mapping = {j: position for j, position in enumerate(sorted_positions)}
+    read_mapping = {i: read_id for i, read_id in enumerate(sorted_read_ids)}
+    
+    return matrix, position_mapping, read_mapping
+
+# Charger et convertir les données
+matrix, positions, reads = get_matrix_from_json('/udd/mfoin/Dev/strainMinerGraph/output_strainminer/tmp/dict_of_sus_pos_ctg0_0.json')
+
+print("\nMatrice convertie depuis JSON:")
+print(f"Forme: {matrix.shape} (positions × reads)")
+print(f"Nombre de positions: {len(positions)}")
+print(f"Nombre de reads: {len(reads)}")
+# Afficher la matrice
+print(matrix)
+matrix = bitarray_heapsort.sort_numpy(matrix)
+
+plot_matrix(matrix,[])

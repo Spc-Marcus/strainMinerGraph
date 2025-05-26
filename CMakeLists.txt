@@ -8,28 +8,35 @@ project(Hairsplitter)
 
 # Local header files here ONLY
 set(TARGET_H
-    input_output.h
-    robin_hood.h
-    read.h
-    sequence.h
-    tools.h
-    Partition.h
+    src/utils/input_output.h
+    src/utils/robin_hood.h
+    src/utils/read.h
+    src/utils/sequence.h
+    src/utils/tools.h
+    src/utils/Partition.h
    )
 
 # Local source files here
 set(TARGET_SRC
     edlib/src/edlib.cpp
-    input_output.cpp
-    read.cpp
-    tools.cpp
-    sequence.cpp
-    Partition.cpp
+    src/utils/input_output.cpp
+    src/utils/read.cpp
+    src/utils/tools.cpp
+    src/utils/sequence.cpp
+    src/utils/Partition.cpp
     )
 
-file (GLOB CONVERT_SOURCE2 "gfa2fa.cpp")
+file (GLOB CONVERT_SOURCE2 "src/utils/gfa2fa.cpp")
 add_executable(gfa2fa ${CONVERT_SOURCE2})
 
-file (GLOB SOURCE_CREATE_NEW_CONTIG "create_new_contigs.cpp" "input_output.cpp" "robin_hood.h" "tools.cpp" "read.cpp" "sequence.cpp" "Partition.cpp")
+file (GLOB SOURCE_CREATE_NEW_CONTIG 
+"src/utils/create_new_contigs.cpp" 
+"src/utils/input_output.cpp" 
+"src/utils/robin_hood.h" 
+"src/utils/tools.cpp" 
+"src/utils/read.cpp" 
+"src/utils/sequence.cpp" 
+"src/utils/Partition.cpp")
 add_executable(create_new_contigs ${SOURCE_CREATE_NEW_CONTIG} edlib/src/edlib.cpp)
 target_include_directories(create_new_contigs PRIVATE edlib/include)
 target_compile_options (create_new_contigs PRIVATE -g)
@@ -38,6 +45,7 @@ target_compile_options (create_new_contigs PRIVATE -fopenmp)
 target_compile_options (create_new_contigs PRIVATE -std=c++17)
 target_compile_options (create_new_contigs PRIVATE -O3)
 target_compile_options (create_new_contigs PRIVATE -march=x86-64)
+target_include_directories(create_new_contigs PRIVATE edlib/include src/utils)
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)

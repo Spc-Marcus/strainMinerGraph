@@ -1,6 +1,6 @@
 #include "tools.h"
 // #include "reassemble_unaligned_reads.h"
-#include "edlib/include/edlib.h"
+#include "edlib.h"
 
 #include <iostream>
 #include <fstream>
