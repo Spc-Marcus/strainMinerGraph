@@ -1,33 +1,37 @@
 from setuptools import setup, Extension, find_packages
-import numpy as np
 
+# Fonction pour obtenir les chemins d'inclusion numpy de façon sécurisée
+def get_numpy_include():
+    try:
+        import numpy
+        return numpy.get_include()
+    except ImportError:
+        return None
+
+# Module d'extension avec les en-têtes numpy
 module = Extension('bitarray_heapsort',
-                  sources = ['bitarray_heapsort.c'],
-                  include_dirs=[np.get_include()])
+                  sources = ['src/utils/bitarray_heapsort.c'],
+                  include_dirs=[get_numpy_include()] if get_numpy_include() else [])
 
+# Configuration de base
 setup(
-    # Métadonnées du projet global
     name = 'strainminer',
     version = '0.1.0',
     description = 'Outil pour l\'analyse des souches microbiennes',
-    
-    # Configuration du package Python
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    
-    # Extension C existante
     ext_modules = [module],
-    
-    # Dépendances
     install_requires=[
         'numpy',
-        # ajoutez ici vos autres dépendances
+        'PySide6',
     ],
-    
-    # Point d'entrée pour la ligne de commande
+    setup_requires=[
+        'numpy',
+    ],
     entry_points={
         'console_scripts': [
             'strainminer=strainminer.__main__:init',
+            'strainminer-gui=strainminer.ui:run_app',
         ],
     },
 )
