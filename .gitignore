@@ -75,9 +75,6 @@ local.properties
 .DS_Store
 Thumbs.db
 
-# test files
-test/
-test_*
 
 #output
 output/
@@ -97,3 +94,11 @@ output.txt
 #autre
 
 *.ide
+
+# data files
+*.csv
+*.tsv
+*.json
+test_datasets/
+# cache files
+.cache/
