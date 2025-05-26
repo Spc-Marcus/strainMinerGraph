@@ -6,18 +6,12 @@ StrainMiner - Un outil pour l'analyse des souches microbiennes
 from .core import (
     __version__,
     file_path,
-    get_data,
-    pre_processing,
-    biclustering_full_matrix,
-    post_processing
+    get_data
 )
 
 # Évitez l'importation circulaire en important init à l'utilisation
 __all__ = [
     '__version__',
     'file_path',
-    'get_data',
-    'pre_processing',
-    'biclustering_full_matrix',
-    'post_processing'
+    'get_data'
 ]

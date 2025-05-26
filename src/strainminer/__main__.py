@@ -1,6 +1,6 @@
 import os
 import sys
-from .core import __version__, file_path, get_data, pre_processing, biclustering_full_matrix, post_processing
+from .core import __version__
 import argparse
 
 def init(assembly_file, bam_file, reads_file, output_folder, 
