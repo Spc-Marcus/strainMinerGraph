@@ -16,7 +16,7 @@ module = Extension('bitarray_heapsort',
 # Configuration de base
 setup(
     name = 'strainminer',
-    version = '0.1.0',
+    version = '1.1.0',
     description = 'Outil pour l\'analyse des souches microbiennes',
     packages=find_packages(where="src"),
     package_dir={"": "src"},
@@ -28,6 +28,12 @@ setup(
     setup_requires=[
         'numpy',
     ],
+    extras_require={
+        'test': [
+            'pytest',
+            'pytest-cov',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'strainminer=strainminer.__main__:init',
