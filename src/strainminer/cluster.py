@@ -175,7 +175,23 @@ def clustering_step(input_matrix: np.ndarray,
        - Stop when fewer than min_row_quality rows remain
        - Stop when fewer than min_col_quality columns remain  
        - Stop when no significant patterns are detected"""
-    pass
+    # Initialize row and column indices
+    matrix1 = input_matrix.copy()
+    matrix0 = np.where(input_matrix == -1, 1, 1 - input_matrix)
+
+    rows, cols = matrix1.shape
+    remaining_rows = list(range(rows))
+    remaining_columns = list(range(cols))
+    curent_cluster = True
+    read1, read0, columns = [], []
+
+    while curent_cluster and len(remaining_rows) >= min_row_quality and len(remaining_columns) >= min_col_quality:
+        if curent_cluster:
+            # Find quasi-biclique for 1-patterns
+            read1, columns, curent_cluster = find_quasi_biclique(matrix1[remaining_rows, :][:, remaining_columns], error_rate)
+        else:
+            # Find quasi-biclique for 0-patterns
+            read0, columns, curent_cluster = find_quasi_biclique(matrix0[remaining_rows, :][:, remaining_columns], error_rate)
 
 def find_quasi_biclique(
     input_matrix: np.ndarray,
