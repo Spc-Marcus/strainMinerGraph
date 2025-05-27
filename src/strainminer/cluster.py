@@ -20,9 +20,9 @@ def clustering_full_matrix(
     Parameters
     ----------
     input_matrix : np.ndarray
-        Input binary matrix with values (0, 1, -1) where rows and columns represent 
+        Input binary matrix with values (0, 1) where rows and columns represent 
         data points and features respectively. Values indicate feature presence (1), 
-        absence (0), or uncertainty (-1).
+        absence (0).
     regions : List[List[int]]
         List of column index groups to process separately. Each region contains 
         column indices that should be analyzed together as a coherent unit.
@@ -127,9 +127,9 @@ def clustering_step(input_matrix: np.ndarray,
     Parameters
     ----------
     input_matrix : np.ndarray
-        Input binary matrix with values (0, 1, -1) where rows represent data points 
+        Input binary matrix with values (0, 1) where rows represent data points 
         and columns represent features. Values indicate feature presence (1), 
-        absence (0), or uncertainty (-1).
+        absence (0)
     error_rate : float, optional
         Tolerance level for quasi-biclique detection, allowing for noise and 
         imperfections in binary patterns. Default is 0.025 (2.5%).
@@ -153,7 +153,6 @@ def clustering_step(input_matrix: np.ndarray,
     Algorithm
     ---------
     1. **Matrix Preparation**:
-       - Create positive matrix: replace -1 with 0 for detecting 1-patterns
        - Create negative matrix: invert values to detect 0-patterns
        
     2. **Alternating Pattern Detection**:
@@ -175,23 +174,72 @@ def clustering_step(input_matrix: np.ndarray,
        - Stop when fewer than min_row_quality rows remain
        - Stop when fewer than min_col_quality columns remain  
        - Stop when no significant patterns are detected"""
-    # Initialize row and column indices
-    matrix1 = input_matrix.copy()
-    matrix0 = np.where(input_matrix == -1, 1, 1 - input_matrix)
+    # Initialize matrices: original and inverted for detecting 0-patterns
+    matrix1 = input_matrix.copy()  # Matrix for detecting 1-patterns (positive patterns)
+    matrix0 = np.where(input_matrix == -1, 1, 1 - input_matrix)  # Inverted matrix for detecting 0-patterns (negative patterns)
 
-    rows, cols = matrix1.shape
-    remaining_rows = list(range(rows))
-    remaining_columns = list(range(cols))
-    curent_cluster = True
-    read1, read0, columns = [], []
-
-    while curent_cluster and len(remaining_rows) >= min_row_quality and len(remaining_columns) >= min_col_quality:
-        if curent_cluster:
-            # Find quasi-biclique for 1-patterns
-            read1, columns, curent_cluster = find_quasi_biclique(matrix1[remaining_rows, :][:, remaining_columns], error_rate)
+    # Initialize row and column tracking variables
+    remain_rows = range(matrix1.shape[0])  # Rows still available for processing
+    current_cols = range(matrix1.shape[1])  # Columns currently being analyzed
+    clustering_1 = True  # Flag to alternate between 1-pattern and 0-pattern detection
+    status = True  # Flag to continue processing while patterns are found
+    rw1, rw0 = [], []  # Accumulate rows with positive and negative patterns respectively
+    
+    # Main clustering loop: continue until insufficient rows/columns or no patterns found
+    while len(remain_rows) >= min_row_quality and len(current_cols) >= min_col_quality and status:
+        # Alternate between searching for 1-patterns and 0-patterns
+        if clustering_1:
+            # Search for quasi-biclique in original matrix (1-patterns)
+            rw, cl, status = find_quasi_biclique(matrix1[remain_rows][:, current_cols], error_rate)
         else:
-            # Find quasi-biclique for 0-patterns
-            read0, columns, curent_cluster = find_quasi_biclique(matrix0[remaining_rows, :][:, remaining_columns], error_rate)
+            # Search for quasi-biclique in inverted matrix (0-patterns)
+            rw, cl, status = find_quasi_biclique(matrix0[remain_rows][:, current_cols], error_rate)
+             
+        # Convert local indices back to global matrix coordinates
+        rw = [remain_rows[r] for r in rw]  # Map row indices to original matrix
+        cl = [current_cols[c] for c in cl]  # Map column indices to original matrix
+        
+        # Filter out extremely noisy columns based on pattern homogeneity
+        if len(cl) > 0:
+            if len(rw) == 0:
+                # No rows found, clear columns to stop processing
+                current_cols = []
+            else:
+                # Calculate column homogeneity for quality filtering
+                if clustering_1:
+                    # For 1-patterns: calculate density of 1s in selected rows/columns
+                    col_homogeneity = matrix1[rw][:, cl].sum(axis=0) / len(rw)
+                else:
+                    # For 0-patterns: calculate density in inverted matrix
+                    col_homogeneity = matrix0[rw][:, cl].sum(axis=0) / len(rw)
+                
+                # Keep only columns with homogeneity above threshold (5× error rate)
+                current_cols = [c for idx, c in enumerate(cl) if col_homogeneity[idx] > 5 * error_rate]
+        else:
+            # No significant columns found, stop processing
+            status = False   
+            
+        # Accumulate rows into appropriate pattern groups
+        if status:
+            if clustering_1:
+                # Add rows showing positive patterns (predominantly 1s)
+                rw1 = rw1 + [r for r in rw]
+            else:
+                # Add rows showing negative patterns (predominantly 0s)
+                rw0 = rw0 + [r for r in rw]  
+                
+        # Remove processed rows from remaining set for next iteration
+        remain_rows = [r for r in remain_rows if r not in rw]
+        
+        # Switch pattern detection mode for next iteration
+        clustering_1 = not clustering_1
+    
+    # Return final row groups and significant columns
+    return rw1, rw0, current_cols
+
+        
+
+
 
 def find_quasi_biclique(
     input_matrix: np.ndarray,
