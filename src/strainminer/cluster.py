@@ -69,8 +69,48 @@ def clustering_full_matrix(
        - Both row groups contain at least one element
        - Column set meets minimum quality requirements
     """
-    pass
+    # Initialize results with pre-existing clustering steps
+    results = steps.copy()
+    
+    # Handle edge case: empty matrix
+    if len(input_matrix) == 0 or len(input_matrix[0]) == 0:
+        return results
+    
+    # Process each column region independently
+    for region in regions:
+        # Initialize remaining columns to process in this region
+        remaining_columns = region.copy()
+        status = True
+        
+        # Continue clustering until no more patterns found or insufficient columns remain
+        while status and len(remaining_columns) >= min_col_quality:
+            # Perform single clustering step on current column subset
+            read1, read0, columns = clustering_step(
+                input_matrix[:, remaining_columns],  # Extract submatrix for current columns
+                error_rate=error_rate,
+                min_row_quality=min_row_quality,
+                min_col_quality=min_col_quality
+            )
 
+            # Check if clustering found significant patterns
+            if len(columns) == 0:
+                # No more patterns found, stop processing this region
+                status = False
+            else:
+                # Store valid clustering result
+                results.append((
+                    read1,    # Rows with positive pattern
+                    read0,    # Rows with negative pattern  
+                    columns   # Columns where separation is significant
+                ))
+                
+                # Remove processed columns from remaining set
+                remaining_columns = [
+                    col for col in remaining_columns if col not in columns
+                ]
+
+    # Filter results to return only valid clusters with non-empty groups
+    return (rep for rep in results if len(rep[0]) > 0 and len(rep[1]) > 0 and len(rep[2]) >= min_col_quality)
 
 def clustering_step(input_matrix: np.ndarray,
                     error_rate: float = 0.025,
