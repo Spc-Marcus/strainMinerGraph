@@ -1,6 +1,13 @@
 from typing import List, Tuple
 import numpy as np
 
+import gurobipy as grb
+
+options = {
+	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
+	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
+	"LICENSEID":2669217
+}
 
 def clustering_full_matrix(
         input_matrix:np.ndarray, 
@@ -320,5 +327,156 @@ def find_quasi_biclique(
     - `x_ij ≥ r_i + c_j - 1` : Cell selected if both row and column selected
     - `Σ_{i,j} x_ij × (1-M[i,j]) ≤ error_rate × Σ_{i,j} x_ij` : Density constraint
     """
+    # Copy input matrix to avoid modifying original
+    matrix = input_matrix.copy()
+    
+    # Sort columns and rows by sum in descending order (highest density first)
+    cols_sorted = np.argsort(matrix.sum(axis=0))[::-1]
+    rows_sorted = np.argsort(matrix.sum(axis=1))[::-1]
 
-    pass
+    m = len(rows_sorted)
+    n = len(cols_sorted)
+    
+    # Handle edge case: empty matrix
+    if m == 0 or n == 0:
+        return [], [], False
+
+    # Phase 1: Seed Region Selection
+    # Start with top 1/3 of rows and columns by density
+    seed_rows = m // 3
+    seed_cols = n // 3
+    step_n = (10 if n > 50 else 2)  # Adaptive step size based on matrix size
+
+    # Find the largest sub-region with >99% density of 1s as seed
+    for i in range(seed_rows, m, 10):
+        for j in range(seed_cols, n, step_n):
+            nb_of_ones = 0
+            # Count 1s in current sub-region
+            for row in rows_sorted[:i]:
+                for col in cols_sorted[:j]:
+                    nb_of_ones += matrix[row, col]
+            
+            ratio_ones = nb_of_ones / (i * j)
+            if ratio_ones > 0.99:
+                # Found a seed region with sufficient density
+                seed_rows = i
+                seed_cols = j
+
+    # Initialize Gurobi optimization environment
+    env = grb.Env(params=options, logsToConsole=0)
+    model = grb.Model('Max_model', env=env)
+    model.Params.OutputFlag = 0  # Suppress console output
+    model.Params.MIPGAP = 0.05   # Set MIP gap tolerance
+    model.Params.TimeLimit = 20  # Set time limit (seconds)
+
+    # Phase 1: Seeding Optimization
+    # Create binary variables for initial seed region
+    lpRows = model.addVars(rows_sorted[:seed_rows], lb=0, ub=1, vtype=grb.GRB.BINARY, name='rw')
+    lpCols = model.addVars(cols_sorted[:seed_cols], lb=0, ub=1, vtype=grb.GRB.BINARY, name='cl')
+    lpCells = model.addVars([(r, c) for r in rows_sorted[:seed_rows] for c in cols_sorted[:seed_cols]], 
+                           lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+
+    # Objective: Maximize sum of selected 1s
+    model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+
+    # Constraints: Cell selected only if both row and column are selected
+    for cell in lpCells:
+        model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
+        model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
+        model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
+
+    # Density constraint: fraction of 0s ≤ error_rate
+    model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
+                   <= error_rate * lpCells.sum(), 'density_constraint')
+
+    # Solve initial optimization
+    model.optimize()
+
+    # Extract selected rows and columns from solution
+    selected_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
+    selected_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
+
+    # Phase 2: Row Extension
+    # Find remaining rows with >50% compatibility with selected columns
+    rem_rows = [r for r in rows_sorted if r not in lpRows.keys()]
+    if len(selected_cols) > 0:  # Only if we have selected columns
+        rem_rows_sum = matrix[rem_rows][:, selected_cols].sum(axis=1)
+        potential_rows = [r for idx, r in enumerate(rem_rows) if rem_rows_sum[idx] > 0.5 * len(selected_cols)]
+    else:
+        potential_rows = []
+
+    # Add compatible rows to optimization
+    if potential_rows:
+        lpRows.update(model.addVars(potential_rows, lb=0, ub=1, vtype=grb.GRB.BINARY, name='rw'))
+        new_cells = model.addVars([(r, c) for r in potential_rows for c in selected_cols], 
+                                 lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+        lpCells.update(new_cells)
+
+        # Update objective function
+        model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+
+        # Add constraints for new cells
+        for cell in new_cells:
+            model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
+            model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
+            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
+
+        # Update density constraint
+        model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
+                       <= error_rate * lpCells.sum(), 'density_constraint_phase2')
+
+        # Re-optimize with extended rows
+        model.optimize()
+
+    # Extract updated selected rows and columns
+    selected_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
+    selected_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
+
+    # Phase 3: Column Extension
+    # Find remaining columns with >90% compatibility with selected rows
+    rem_cols = [c for c in cols_sorted if c not in lpCols.keys()]
+    if len(selected_rows) > 0:  # Only if we have selected rows
+        rem_cols_sum = matrix[selected_rows][:, rem_cols].sum(axis=0)
+        potential_cols = [c for idx, c in enumerate(rem_cols) if rem_cols_sum[idx] > 0.9 * len(selected_rows)]
+    else:
+        potential_cols = []
+
+    # Add compatible columns to optimization
+    if potential_cols:
+        lpCols.update(model.addVars(potential_cols, lb=0, ub=1, vtype=grb.GRB.BINARY, name='cl'))
+        new_cells = model.addVars([(r, c) for r in selected_rows for c in potential_cols], 
+                                 lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+        lpCells.update(new_cells)
+
+        # Update objective function
+        model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+
+        # Add constraints for new cells
+        for cell in new_cells:
+            model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
+            model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
+            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
+
+        # Update density constraint
+        model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
+                       <= error_rate * lpCells.sum(), 'density_constraint_phase3')
+
+        # Final optimization
+        model.optimize()
+
+    # Extract final results
+    final_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
+    final_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
+
+    # Check optimization status and return appropriate result
+    status = model.Status
+    
+    if status in (grb.GRB.INF_OR_UNBD, grb.GRB.INFEASIBLE, grb.GRB.UNBOUNDED):
+        return [], [], False  # Optimization failed
+    elif status == grb.GRB.TIME_LIMIT:
+        return final_rows, final_cols, True  # Time limit reached but solution available
+    elif status != grb.GRB.OPTIMAL:
+        return [], [], False  # Other optimization issues
+    
+    # Successful optimization
+    return final_rows, final_cols, True
