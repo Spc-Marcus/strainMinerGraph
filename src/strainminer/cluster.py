@@ -2,6 +2,8 @@ from typing import List, Tuple
 import numpy as np
 
 import gurobipy as grb
+import logging
+logger = logging.getLogger(__name__)
 
 options = {
 	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
@@ -84,49 +86,45 @@ def clustering_full_matrix(
     post_processing : Final step that converts clustering steps to read groups
     
     """
-    # Initialize results with pre-existing clustering steps
-    results = steps.copy()
+    # Initialize result list with existing steps
+    steps_result = steps.copy() if steps else []
     
-    # Handle edge case: empty matrix
-    if len(input_matrix) == 0 or len(input_matrix[0]) == 0:
-        return results
+    # Process each region if any regions are provided
+    if len(regions) > 0:
+        for idx, region in enumerate(regions):   
+            # Initialize remaining columns for this region
+            remain_cols = region
+            status = True
+            
+            # Only process regions that meet minimum quality threshold
+            if len(remain_cols) >= min_col_quality:
+                # Iteratively extract patterns until no more significant ones found
+                while len(remain_cols) >= min_col_quality and status:
+                    # Apply clustering to current remaining columns
+                    reads1, reads0, cols = clustering_step(input_matrix[:, remain_cols], 
+                                                          error_rate=error_rate,
+                                                          min_row_quality=min_row_quality, 
+                                                          min_col_quality=min_col_quality)
+                    
+                    # Convert local column indices back to global matrix coordinates
+                    cols = [remain_cols[c] for c in cols]
+                    
+                    # Check if valid pattern was found
+                    if len(cols) == 0:
+                        status = False  # No more patterns, stop processing this region
+                    else:
+                        # Save valid clustering step
+                        steps_result.append((reads1, reads0, cols))
+                        # Remove processed columns from remaining set
+                        remain_cols = [c for c in remain_cols if c not in cols]
     
-    # Process each column region independently
-    for region in regions:
-        # Initialize remaining columns to process in this region
-        remaining_columns = region.copy()
-        status = True
-        
-        # Continue clustering until no more patterns found or insufficient columns remain
-        while status and len(remaining_columns) >= min_col_quality:
-            # Perform single clustering step on current column subset
-            read1, read0, columns = clustering_step(
-                input_matrix[:, remaining_columns],  # Extract submatrix for current columns
-                error_rate=error_rate,
-                min_row_quality=min_row_quality,
-                min_col_quality=min_col_quality
-            )
-
-            # Check if clustering found significant patterns
-            if len(columns) == 0:
-                # No more patterns found, stop processing this region
-                status = False
-            else:
-                # Store valid clustering result
-                results.append((
-                    read1,    # Rows with positive pattern
-                    read0,    # Rows with negative pattern  
-                    columns   # Columns where separation is significant
-                ))
-                
-                # Remove processed columns from remaining set
-                remaining_columns = [
-                    col for col in remaining_columns if col not in columns
-                ]
-
-    # Filter results to return only valid clusters with non-empty groups
-    return (rep for rep in results if len(rep[0]) > 0 and len(rep[1]) > 0 and len(rep[2]) >= min_col_quality)
-
+    # Log clustering results for debugging
+    logger.info(f"Number of clustering steps: {len(steps_result)}")
+    for i, step in enumerate(steps_result):
+        logger.info(f"Step {i}: Group1={len(step[0])}, Group0={len(step[1])}, Cols={len(step[2])}")
+    
+    # Filter and return only valid steps with non-empty groups and sufficient columns
+    return [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
 def clustering_step(input_matrix: np.ndarray,
                     error_rate: float = 0.025,
                     min_row_quality: int = 5,
@@ -196,67 +194,55 @@ def clustering_step(input_matrix: np.ndarray,
     find_quasi_biclique : Core optimization algorithm for dense pattern detection
        
     """
-    # Initialize matrices: original and inverted for detecting 0-patterns
-    matrix1 = input_matrix.copy()  # Matrix for detecting 1-patterns (positive patterns)
-    matrix0 = np.where(input_matrix == -1, 1, 1 - input_matrix)  # Inverted matrix for detecting 0-patterns (negative patterns)
-
-    # Initialize row and column tracking variables
-    remain_rows = range(matrix1.shape[0])  # Rows still available for processing
-    current_cols = range(matrix1.shape[1])  # Columns currently being analyzed
-    clustering_1 = True  # Flag to alternate between 1-pattern and 0-pattern detection
-    status = True  # Flag to continue processing while patterns are found
-    rw1, rw0 = [], []  # Accumulate rows with positive and negative patterns respectively
+    # Create binary matrices for pattern detection
+    # Handle -1 values by treating them as 0s in positive pattern matrix
+    matrix1 = input_matrix.copy()
+    matrix1[matrix1 == -1] = 0  # Convert missing values to 0 for positive patterns
     
-    # Main clustering loop: continue until insufficient rows/columns or no patterns found
+    # Create inverted matrix for negative pattern detection
+    # Convert -1 to 1, then invert all values (0->1, 1->0)
+    matrix0 = input_matrix.copy()
+    matrix0[matrix0 == -1] = 1
+    matrix0 = (matrix0 - 1) * -1  # Invert matrix for negative pattern detection
+    
+    # Initialize tracking variables for iterative clustering
+    remain_rows = range(matrix1.shape[0])  # All rows initially available
+    current_cols = range(matrix1.shape[1])  # All columns initially available
+    clustering_1 = True  # Alternate between positive (True) and negative (False) patterns
+    status = True  # Continue while valid patterns are found
+    rw1, rw0 = [], []  # Accumulate rows for positive and negative groups
+    
+    # Iteratively extract patterns until insufficient data remains
     while len(remain_rows) >= min_row_quality and len(current_cols) >= min_col_quality and status:
-        # Alternate between searching for 1-patterns and 0-patterns
+        # Apply quasi-biclique detection on appropriate matrix
         if clustering_1:
-            # Search for quasi-biclique in original matrix (1-patterns)
+            # Search for positive patterns (dense regions of 1s)
             rw, cl, status = find_quasi_biclique(matrix1[remain_rows][:, current_cols], error_rate)
         else:
-            # Search for quasi-biclique in inverted matrix (0-patterns)
+            # Search for negative patterns (dense regions of 0s in original)
             rw, cl, status = find_quasi_biclique(matrix0[remain_rows][:, current_cols], error_rate)
              
         # Convert local indices back to global matrix coordinates
         rw = [remain_rows[r] for r in rw]  # Map row indices to original matrix
         cl = [current_cols[c] for c in cl]  # Map column indices to original matrix
         
-        # Filter out extremely noisy columns based on pattern homogeneity
-        if len(cl) > 0:
-            if len(rw) == 0:
-                # No rows found, clear columns to stop processing
-                current_cols = []
-            else:
-                # Calculate column homogeneity for quality filtering
-                if clustering_1:
-                    # For 1-patterns: calculate density of 1s in selected rows/columns
-                    col_homogeneity = matrix1[rw][:, cl].sum(axis=0) / len(rw)
-                else:
-                    # For 0-patterns: calculate density in inverted matrix
-                    col_homogeneity = matrix0[rw][:, cl].sum(axis=0) / len(rw)
-                
-                # Keep only columns with homogeneity above threshold (5× error rate)
-                current_cols = [c for idx, c in enumerate(cl) if col_homogeneity[idx] > 5 * error_rate]
-        else:
-            # No significant columns found, stop processing
-            status = False   
-            
-        # Accumulate rows into appropriate pattern groups
-        if status:
+        # Use columns directly from quasi-biclique detection without additional filtering
+        current_cols = cl  # Update working column set to detected significant columns
+        
+        # Accumulate rows into appropriate pattern group if valid pattern found
+        if status and len(cl) > 0:
             if clustering_1:
-                # Add rows showing positive patterns (predominantly 1s)
-                rw1 = rw1 + [r for r in rw]
+                rw1.extend(rw)  # Add to positive pattern group
             else:
-                # Add rows showing negative patterns (predominantly 0s)
-                rw0 = rw0 + [r for r in rw]  
+                rw0.extend(rw)  # Add to negative pattern group
                 
         # Remove processed rows from remaining set for next iteration
         remain_rows = [r for r in remain_rows if r not in rw]
-        
-        # Switch pattern detection mode for next iteration
+        # Alternate pattern detection type for next iteration
         clustering_1 = not clustering_1
-    
-    # Return final row groups and significant columns
+        
+    # Log final clustering statistics
+    logger.info(f"Final clustering results: rw1={len(rw1)}, rw0={len(rw0)}, current_cols={len(current_cols)}")
     return rw1, rw0, current_cols
 
         
@@ -359,216 +345,171 @@ def find_quasi_biclique(
     
     """
     # Copy input matrix to avoid modifying original
-    matrix = input_matrix.copy()
-    
-    # Sort columns and rows by sum in descending order (highest density first)
-    cols_sorted = np.argsort(matrix.sum(axis=0))[::-1]
-    rows_sorted = np.argsort(matrix.sum(axis=1))[::-1]
+    X_problem = input_matrix.copy()
+
+    # Sort rows and columns by decreasing number of 1s (highest density first)
+    cols_sorted = np.argsort(X_problem.sum(axis=0))[::-1]
+    rows_sorted = np.argsort(X_problem.sum(axis=1))[::-1]
 
     m = len(rows_sorted)
     n = len(cols_sorted)
-    
+
     # Handle edge case: empty matrix
     if m == 0 or n == 0:
         return [], [], False
 
-    # Phase 1: Seed Region Selection
-    # Start with top 1/3 of rows and columns by density
+    # Phase 1: Seed region selection - find dense area to start optimization
     seed_rows = m // 3
     seed_cols = n // 3
-    step_n = (10 if n > 50 else 2)  # Adaptive step size based on matrix size
 
-    # Find the largest sub-region with >99% density of 1s as seed
-    for i in range(seed_rows, m, 10):
-        for j in range(seed_cols, n, step_n):
+    # Adjust step size based on matrix width
+    if n > 50:
+        step_n = 10
+    else:
+        step_n = 2
+
+    # Search for the largest sub-region with >99% density of 1s
+    for x in range(m // 3, m, 10):
+        for y in range(seed_cols, n, step_n):
             nb_of_ones = 0
-            # Count 1s in current sub-region
-            for row in rows_sorted[:i]:
-                for col in cols_sorted[:j]:
-                    nb_of_ones += matrix[row, col]
-            
-            ratio_ones = nb_of_ones / (i * j)
+            for row in rows_sorted[:x]:
+                for col in cols_sorted[:y]:
+                    nb_of_ones += X_problem[row, col]
+            ratio_ones = nb_of_ones / (x * y)
             if ratio_ones > 0.99:
-                # Found a seed region with sufficient density
-                seed_rows = i
-                seed_cols = j
+                seed_rows = x
+                seed_cols = y
 
     # Initialize Gurobi optimization environment
     try:
-        model = setup_gurobi_model(error_rate=error_rate)
+        env = grb.Env(params=options)      
+        model = grb.Model('max_model', env=env)          
+        model.Params.OutputFlag = 0  # Suppress output
+        model.Params.MIPGAP = 0.05   # 5% optimality gap tolerance
+        model.Params.TimeLimit = 20  # 20 second time limit
     except Exception as e:
-        print(f"Warning: Failed to setup Gurobi model: {e}")
         return [], [], False
 
-    # Phase 1: Seeding Optimization
-    # Create binary variables for initial seed region
-    lpRows = model.addVars(rows_sorted[:seed_rows], lb=0, ub=1, vtype=grb.GRB.BINARY, name='rw')
-    lpCols = model.addVars(cols_sorted[:seed_cols], lb=0, ub=1, vtype=grb.GRB.BINARY, name='cl')
+    # Phase 2: Create initial optimization model with seed region
+    # Decision variables for rows, columns, and cells in seed region
+    lpRows = model.addVars(rows_sorted[:seed_rows], lb=0, ub=1, vtype=grb.GRB.INTEGER, name='rw')
+    lpCols = model.addVars(cols_sorted[:seed_cols], lb=0, ub=1, vtype=grb.GRB.INTEGER, name='cl')
     lpCells = model.addVars([(r, c) for r in rows_sorted[:seed_rows] for c in cols_sorted[:seed_cols]], 
-                           lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+                        lb=0, ub=1, vtype=grb.GRB.INTEGER, name='ce')
 
-    # Objective: Maximize sum of selected 1s
-    model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+    # Objective: maximize sum of 1s in selected cells
+    model.setObjective(grb.quicksum([(X_problem[c[0]][c[1]]) * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
 
-    # Constraints: Cell selected only if both row and column are selected
+    # Constraints: cells can only be selected if both row and column are selected
     for cell in lpCells:
-        model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
-        model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
-        model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
+        model.addConstr(lpCells[cell] <= lpRows[cell[0]], name=f'row_{cell}')      # Cell needs row
+        model.addConstr(lpCells[cell] <= lpCols[cell[1]], name=f'col_{cell}')      # Cell needs column
+        model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, name=f'both_{cell}')  # Force selection if both selected
 
-    # Density constraint: fraction of 0s ≤ error_rate
-    model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
-                   <= error_rate * lpCells.sum(), 'density_constraint')
+    # Density constraint: limit fraction of 0s in selected region
+    model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
+        [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
 
-    # Solve initial optimization
+    # Solve initial seeding optimization
     model.optimize()
 
-    # Extract selected rows and columns from solution
-    selected_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
-    selected_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
+    # Extract seed solution results
+    rw = []
+    cl = []
+    for var in model.getVars():
+        if var.VarName.startswith('rw') and var.X > 0.5:
+            rw.append(int(var.VarName.split('[')[1].split(']')[0]))
+        elif var.VarName.startswith('cl') and var.X > 0.5:
+            cl.append(int(var.VarName.split('[')[1].split(']')[0]))
 
-    # Phase 2: Row Extension
-    # Find remaining rows with >50% compatibility with selected columns
+    # Phase 3: Row extension - add compatible rows
     rem_rows = [r for r in rows_sorted if r not in lpRows.keys()]
-    if len(selected_cols) > 0:  # Only if we have selected columns
-        rem_rows_sum = matrix[rem_rows][:, selected_cols].sum(axis=1)
-        potential_rows = [r for idx, r in enumerate(rem_rows) if rem_rows_sum[idx] > 0.5 * len(selected_cols)]
+    if len(cl) > 0:
+        # Find rows with >50% compatibility with selected columns
+        rem_rows_sum = X_problem[rem_rows][:, cl].sum(axis=1)
+        potential_rows = [r for idx, r in enumerate(rem_rows) if rem_rows_sum[idx] > 0.5 * len(cl)]
     else:
         potential_rows = []
 
-    # Add compatible rows to optimization
+    # Add compatible rows to model and re-optimize
     if potential_rows:
-        lpRows.update(model.addVars(potential_rows, lb=0, ub=1, vtype=grb.GRB.BINARY, name='rw'))
-        new_cells = model.addVars([(r, c) for r in potential_rows for c in selected_cols], 
-                                 lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+        lpRows.update(model.addVars(potential_rows, lb=0, ub=1, vtype=grb.GRB.INTEGER, name='rw'))
+        new_cells = model.addVars([(r, c) for r in potential_rows for c in cl], 
+                                lb=0, ub=1, vtype=grb.GRB.INTEGER, name='ce')
         lpCells.update(new_cells)
-
-        # Update objective function
-        model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
-
+        
+        # Update objective with new cells
+        model.setObjective(grb.quicksum([(X_problem[c[0]][c[1]]) * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+        
         # Add constraints for new cells
         for cell in new_cells:
-            model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
-            model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
-            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
-
+            model.addConstr(lpCells[cell] <= lpRows[cell[0]], name=f'row_{cell}')
+            model.addConstr(lpCells[cell] <= lpCols[cell[1]], name=f'col_{cell}')
+            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, name=f'both_{cell}')
+        
         # Update density constraint
-        model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
-                       <= error_rate * lpCells.sum(), 'density_constraint_phase2')
-
-        # Re-optimize with extended rows
+        model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
+            [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_row')
+        
         model.optimize()
 
-    # Extract updated selected rows and columns
-    selected_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
-    selected_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
-
-    # Phase 3: Column Extension
-    # Find remaining columns with >90% compatibility with selected rows
+    # Extract results after row extension
+    rw = []
+    cl = []
+    for var in model.getVars():
+        if var.VarName.startswith('rw') and var.X > 0.5:
+            rw.append(int(var.VarName.split('[')[1].split(']')[0]))
+        elif var.VarName.startswith('cl') and var.X > 0.5:
+            cl.append(int(var.VarName.split('[')[1].split(']')[0]))
+                
+    # Phase 4: Column extension - add compatible columns
     rem_cols = [c for c in cols_sorted if c not in lpCols.keys()]
-    if len(selected_rows) > 0:  # Only if we have selected rows
-        rem_cols_sum = matrix[selected_rows][:, rem_cols].sum(axis=0)
-        potential_cols = [c for idx, c in enumerate(rem_cols) if rem_cols_sum[idx] > 0.9 * len(selected_rows)]
+    if len(rw) > 0:
+        # Find columns with >90% compatibility with selected rows
+        rem_cols_sum = X_problem[rw][:, rem_cols].sum(axis=0)
+        potential_cols = [c for idx, c in enumerate(rem_cols) if rem_cols_sum[idx] > 0.9 * len(rw)]
     else:
         potential_cols = []
 
-    # Add compatible columns to optimization
+    # Add compatible columns to model and perform final optimization
     if potential_cols:
-        lpCols.update(model.addVars(potential_cols, lb=0, ub=1, vtype=grb.GRB.BINARY, name='cl'))
-        new_cells = model.addVars([(r, c) for r in selected_rows for c in potential_cols], 
-                                 lb=0, ub=1, vtype=grb.GRB.BINARY, name='ce')
+        lpCols.update(model.addVars(potential_cols, lb=0, ub=1, vtype=grb.GRB.INTEGER, name='cl'))
+        new_cells = model.addVars([(r, c) for r in rw for c in potential_cols], 
+                                lb=0, ub=1, vtype=grb.GRB.INTEGER, name='ce')
         lpCells.update(new_cells)
-
-        # Update objective function
-        model.setObjective(grb.quicksum([matrix[c[0]][c[1]] * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
-
+        
+        # Update objective with all cells
+        model.setObjective(grb.quicksum([(X_problem[c[0]][c[1]]) * lpCells[c] for c in lpCells]), grb.GRB.MAXIMIZE)
+        
         # Add constraints for new cells
         for cell in new_cells:
-            model.addConstr(lpCells[cell] <= lpRows[cell[0]], f'{cell}_row_constraint')
-            model.addConstr(lpCells[cell] <= lpCols[cell[1]], f'{cell}_col_constraint')
-            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, f'{cell}_both_constraint')
-
-        # Update density constraint
-        model.addConstr(grb.quicksum([lpCells[coord] * (1 - matrix[coord[0]][coord[1]]) for coord in lpCells]) 
-                       <= error_rate * lpCells.sum(), 'density_constraint_phase3')
-
-        # Final optimization
+            model.addConstr(lpCells[cell] <= lpRows[cell[0]], name=f'row_{cell}')
+            model.addConstr(lpCells[cell] <= lpCols[cell[1]], name=f'col_{cell}')
+            model.addConstr(lpCells[cell] >= lpRows[cell[0]] + lpCols[cell[1]] - 1, name=f'both_{cell}')
+        
+        # Final density constraint
+        model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
+            [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_col')
+        
         model.optimize()
 
-    # Extract final results
-    final_rows = [r for r in lpRows.keys() if lpRows[r].X > 0.5]
-    final_cols = [c for c in lpCols.keys() if lpCols[c].X > 0.5]
+    # Extract final optimization results
+    rw = []
+    cl = []
+    for var in model.getVars():
+        if var.VarName.startswith('rw') and var.X > 0.5:
+            rw.append(int(var.VarName.split('[')[1].split(']')[0]))
+        elif var.VarName.startswith('cl') and var.X > 0.5:
+            cl.append(int(var.VarName.split('[')[1].split(']')[0]))
 
-    # Check optimization status and return appropriate result
+    # Check optimization status and return appropriate results
     status = model.Status
-    
+
     if status in (grb.GRB.INF_OR_UNBD, grb.GRB.INFEASIBLE, grb.GRB.UNBOUNDED):
-        return [], [], False  # Optimization failed
+        return [], [], False
     elif status == grb.GRB.TIME_LIMIT:
-        return final_rows, final_cols, True  # Time limit reached but solution available
+        return rw, cl, True  # Return solution even with time limit
     elif status != grb.GRB.OPTIMAL:
-        return [], [], False  # Other optimization issues
-    
-    # Successful optimization
-    return final_rows, final_cols, True
-
-
-def setup_gurobi_model(error_rate: float = 0.025, time_limit: int = 20, mip_gap: float = 0.05) -> grb.Model:
-    """
-    Setup Gurobi optimization model with standard parameters for quasi-biclique detection.
-    
-    This function creates and configures a Gurobi optimization environment with 
-    predefined parameters optimized for quasi-biclique detection problems. It handles
-    licensing, logging, and solver parameter configuration.
-    
-    Parameters
-    ----------
-    error_rate : float, optional
-        Error tolerance for quasi-biclique detection. This parameter is stored
-        for reference but doesn't directly affect model setup. Default is 0.025.
-    time_limit : int, optional
-        Maximum time in seconds allowed for optimization. Default is 20 seconds.
-    mip_gap : float, optional
-        Mixed Integer Programming gap tolerance. Optimization stops when gap
-        between best solution and best bound is below this threshold. Default is 0.05 (5%).
-    
-    Returns
-    -------
-    grb.Model
-        Configured Gurobi optimization model ready for variable and constraint addition.
-        The model has the following pre-configured parameters:
-        - OutputFlag = 0 (suppress console output)
-        - TimeLimit = time_limit
-        - MIPGAP = mip_gap
-
-    Raises
-    ------
-    gurobipy.GurobiError
-        If Gurobi license is invalid or environment setup fails
-
-    See Also
-    --------
-    find_quasi_biclique : Main function using this model setup
-    clustering_step : Uses quasi-biclique detection with these models
-    """
-    try:
-        # Create Gurobi environment with license configuration
-        env = grb.Env(params=options, logToConsole=0)
-        
-        # Create optimization model
-        model = grb.Model('StrainMiner_QuasiBiclique', env=env)
-        
-        # Configure solver parameters
-        model.Params.OutputFlag = 0        # Suppress console output
-        model.Params.TimeLimit = time_limit # Set time limit in seconds
-        model.Params.MIPGAP = mip_gap      # Set MIP gap tolerance
-        
-        # Optional: Add additional performance parameters
-        model.Params.Threads = 1           # Single-threaded for consistency
-        model.Params.Presolve = 2          # Aggressive presolve
-        model.Params.Cuts = 2              # Aggressive cutting planes
-        
-        return model
-        
-    except grb.GurobiError as e:
-        raise grb.GurobiError(f"Failed to setup Gurobi model: {e}")
+        return [], [], False
+            
+    return rw, cl, True

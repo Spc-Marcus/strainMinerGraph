@@ -64,8 +64,8 @@ def get_data(input_file: ps.AlignmentFile,
         - Outer key: genomic position (int)
         - Inner key: read name (str)  
         - Inner value: allele call (int)
-          - 1: read has minor allele (variant)
-          - 0: read has major allele (reference-like)
+          - 0: read has minor allele (variant)
+          - 1: read has major allele (reference-like)
           - Missing: read doesn't cover position or filtered out
           
         Only positions with evidence for multiple alleles are included.
@@ -152,87 +152,35 @@ def get_data(input_file: ps.AlignmentFile,
         positions_with_variants = 0
         
         # Process each position in the pileup
-        for pileup_column in pileup_iter:
-            positions_processed += 1
-            
-            # Skip positions with insufficient coverage
-            if pileup_column.nsegments < min_coverage:
-                continue
+        for pileupcolumn in pileup_iter:
+            if pileupcolumn.nsegments >=5:
                 
-            # Extract base sequences at this position
-            try:
-                sequences = np.array(pileup_column.get_query_sequences(), dtype='U1')
-                sequences = np.char.upper(sequences)  # Normalize to uppercase
-            except Exception as e:
-                logger.debug(f"Could not extract sequences at position {pileup_column.reference_pos}: {e}")
-                continue
-            
-            # Handle empty sequences (deletions/gaps)
-            valid_sequences = sequences[sequences != '']
-            if len(valid_sequences) == 0:
-                continue
+                tmp_dict = {}
+                sequence = np.char.upper(np.array(pileupcolumn.get_query_sequences()))
+                bases, freq = np.unique(np.array(sequence),return_counts=True)
+        
+                if bases[0] =='':    
+                    ratio = freq[1:]/sum(freq[1:])
+                    bases = bases[1:]
+                else:
+                    ratio = freq/sum(freq)
                 
-            # Calculate allele frequencies
-            unique_bases, frequencies = np.unique(valid_sequences, return_counts=True)
-            
-            if len(unique_bases) < 2:
-                # Monomorphic position - skip
-                continue
-                
-            # Calculate allele frequency ratios
-            total_coverage = np.sum(frequencies)
-            allele_frequencies = frequencies / total_coverage
-            
-            # Sort alleles by decreasing frequency
-            freq_order = np.argsort(allele_frequencies)[::-1]
-            sorted_bases = unique_bases[freq_order]
-            sorted_frequencies = allele_frequencies[freq_order]
-            
-            # Check if position shows sufficient polymorphism
-            major_allele_freq = sorted_frequencies[0]
-            if major_allele_freq >= max_major_allele_freq:
-                # Major allele too dominant - likely monomorphic
-                continue
-                
-            # Identify the two most common alleles for binary classification
-            major_allele = sorted_bases[0]     # Most frequent
-            minor_allele = sorted_bases[-1]    # Least frequent (for variant detection)
-            
-            # Create binary assignment for reads at this position
-            position_calls = {}
-            
-            for pileup_read in pileup_column.pileups:
-                # Skip deletions and reference skips
-                if pileup_read.is_del or pileup_read.is_refskip:
-                    continue
+                if len(ratio) >0:
+                    idx_sort = np.argsort(ratio)
                     
-                try:
-                    # Extract read name and base call
-                    read_name = pileup_read.alignment.query_name
-                    if pileup_read.query_position is None:
-                        continue  # Skip if no query position
-                        
-                    read_sequence = pileup_read.alignment.query_sequence
-                    if read_sequence is None or pileup_read.query_position >= len(read_sequence):
-                        continue  # Skip if no sequence or position out of bounds
-                        
-                    read_base = read_sequence[pileup_read.query_position].upper()
+                    if ratio[idx_sort[-1]]<0.95:
+                        for pileupread in pileupcolumn.pileups:        
+                            if not pileupread.is_del and not pileupread.is_refskip:
+                                # query position is None if is_del or is_refskip is set.
+                                if pileupread.alignment.query_sequence[pileupread.query_position] == bases[idx_sort[-1]]:
+                                    tmp_dict[pileupread.alignment.query_name] =  1
+                                elif pileupread.alignment.query_sequence[pileupread.query_position] == bases[idx_sort[-2]]:
+                                    tmp_dict[pileupread.alignment.query_name] =  0
+                                else :
+                                    tmp_dict[pileupread.alignment.query_name] = np.nan
                     
-                    # Assign binary code based on allele identity
-                    if read_base == minor_allele:
-                        position_calls[read_name] = 1  # Minor allele (variant)
-                    elif read_base == major_allele:
-                        position_calls[read_name] = 0  # Major allele (reference-like)
-                    # Note: reads with other alleles are filtered out (not assigned)
-                    
-                except (AttributeError, IndexError) as e:
-                    logger.debug(f"Error processing read at position {pileup_column.reference_pos}: {e}")
-                    continue
-            
-            # Store position if it has sufficient variant calls
-            if len(position_calls) >= min_coverage:
-                suspicious_positions[pileup_column.reference_pos] = position_calls
-                positions_with_variants += 1
+                        suspicious_positions[pileupcolumn.reference_pos] = tmp_dict        
+
         
         logger.info(f"Processed {positions_processed} positions, "
                    f"found variants at {positions_with_variants} positions")

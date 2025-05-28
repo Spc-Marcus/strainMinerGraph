@@ -621,12 +621,12 @@ def parse_arguments() -> argparse.Namespace:
     output_opts = parser.add_argument_group('Output and Debugging Options')
     output_opts.add_argument(
         '--verbose', 
-        action='store_true',
+        action='store_false',
         help='Enable verbose logging output for detailed progress monitoring'
     )
     output_opts.add_argument(
         '--keep-temp', 
-        action='store_true',
+        action='store_false',
         help='Preserve temporary files after completion (useful for debugging)'
     )
     output_opts.add_argument(
@@ -648,7 +648,6 @@ def cleanup_temp_files(output_folder: str) -> None:
     """
     import shutil
     
-    # CORRECTION: Récupérer le logger dans la fonction
     logger = logging.getLogger(__name__)
     
     try:

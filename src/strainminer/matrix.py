@@ -44,30 +44,66 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     This ensures that retained reads span the entire genomic window and that
     positions have enough data for reliable variant calling.
     """
+    if not dict_of_sus_pos:
+        return np.array([]), []
+    
     # Create DataFrame from dictionary
     df = pd.DataFrame(dict_of_sus_pos)
     
     if df.empty:
         return np.array([]), []
     
-    # Filter reads that have no data in the first third of columns
-    if len(df.columns) >= 3:  # Check sufficient columns for thirds division
-        tmp_idx = df.iloc[:, :len(df.columns)//3].dropna(axis=0, how='all')
-        df = df.loc[tmp_idx.index, :]
+    # CORRECTION: Déterminer les allèles majoritaires pour chaque position
+    logger.debug(f"Processing {df.shape[1]} positions with {df.shape[0]} reads")
+    
+    # Pour chaque position, déterminer l'allèle majoritaire
+    variant_matrix = df.copy()
+    
+    for col in df.columns:
+        position_data = df[col].dropna()  # Ignorer les NaN
         
-        # Filter reads that have no data in the last third of columns
-        tmp_idx = df.iloc[:, 2*len(df.columns)//3:].dropna(axis=0, how='all')
-        df = df.loc[tmp_idx.index, :]
+        if len(position_data) == 0:
+            continue
+            
+        # Compter les allèles à cette position
+        allele_counts = position_data.value_counts()
+        
+        if len(allele_counts) == 0:
+            continue
+        elif len(allele_counts) == 1:
+            variant_matrix[col] = 0
+        else:
+            majority_allele = allele_counts.index[0]  # Plus fréquent
+            
+            variant_matrix[col] = (df[col] != majority_allele).astype(int)
+            
+            # Garder les NaN comme NaN pour l'imputation ultérieure
+            variant_matrix.loc[df[col].isna(), col] = np.nan
+            
+        logger.debug(f"Position {col}: majority={majority_allele}, "
+                    f"variants={(variant_matrix[col] == 1).sum()}")
     
-    # Filter columns with insufficient data coverage
-    if not df.empty:
-        df = df.dropna(axis=1, thresh=min_coverage_threshold * len(df.index))
+    # Filter reads that span the window (existing logic)
+    if len(variant_matrix.columns) >= 3:
+        # Filtrer les reads sans données dans le premier tiers
+        tmp_idx = variant_matrix.iloc[:, :len(variant_matrix.columns)//3].dropna(axis=0, how='all')
+        variant_matrix = variant_matrix.loc[tmp_idx.index, :]
+        
+        # Filtrer les reads sans données dans le dernier tiers
+        tmp_idx = variant_matrix.iloc[:, 2*len(variant_matrix.columns)//3:].dropna(axis=0, how='all')
+        variant_matrix = variant_matrix.loc[tmp_idx.index, :]
     
-    # Extract list of reads after filtering
-    reads = list(df.index)
+    # Filter columns with insufficient coverage
+    if not variant_matrix.empty:
+        variant_matrix = variant_matrix.dropna(axis=1, thresh=min_coverage_threshold * len(variant_matrix.index))
     
-    # Convert to numpy matrix for return
-    matrix = df.to_numpy() if not df.empty else np.array([])
+    # Extract filtered reads
+    reads = list(variant_matrix.index)
+    
+    # Convert to numpy matrix
+    matrix = variant_matrix.to_numpy() if not variant_matrix.empty else np.array([])
+    
+    logger.info(f"Matrix created: {matrix.shape} with {len(reads)} reads")
     
     return matrix, reads
 
@@ -185,7 +221,32 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
                 # Only keep well-separated clusters (>90% or <10%)
                 if (mat_cl0 > 0.9 or mat_cl0 < 0.1) and (mat_cl1 > 0.9 or mat_cl1 < 0.1):
                     steps.append((cluster1, cluster0, region))
-
+    # Log matrix statistics for debugging
+    input_ones = (input_matrix == 1).sum()
+    input_zeros = (input_matrix == 0).sum()
+    input_nans = np.isnan(input_matrix).sum()
+    input_total = input_matrix.size
+    
+    output_ones = (matrix == 1).sum()
+    output_zeros = (matrix == 0).sum()
+    output_total = matrix.size
+    
+    # Log debug info instead of saving to file
+    logger.info(f"Matrix Processing Debug Info:")
+    logger.info(f"INPUT MATRIX {input_matrix.shape}: "
+               f"Total={input_total}, "
+               f"Ones={input_ones} ({input_ones/input_total*100:.2f}%), "
+               f"Zeros={input_zeros} ({input_zeros/input_total*100:.2f}%), "
+               f"NaNs={input_nans} ({input_nans/input_total*100:.2f}%)")
+    
+    logger.info(f"OUTPUT MATRIX {matrix.shape}: "
+               f"Total={output_total}, "
+               f"Ones={output_ones} ({output_ones/output_total*100:.2f}%), "
+               f"Zeros={output_zeros} ({output_zeros/output_total*100:.2f}%)")
+    
+    logger.info(f"REGIONS: Total={len(regions)}, "
+               f"Inhomogeneous={len(inhomogenious_regions)}, "
+               f"Steps={len(steps)}")
     return matrix, inhomogenious_regions, steps
 
 def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarray:
@@ -202,8 +263,8 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
     matrix : np.ndarray
         Input matrix with shape (n_reads, n_positions) containing variant calls.
         Values can include:
-        - 0: Reference allele or major variant
-        - 1: Alternative allele or minor variant  
+        - 1: Reference allele or major variant
+        - 0: Alternative allele or minor variant  
         - np.nan: Missing or uncertain values to be imputed
         - Other numerical values: Intermediate probabilities or quality scores
         
@@ -262,11 +323,7 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
     try:
         # Initialize KNN imputer with specified parameters
         imputer = KNNImputer(
-            n_neighbors=n_neighbors,
-            weights='distance',  # Weight by inverse distance for better local fit
-            metric='nan_euclidean',  # Handle missing values during distance computation
-            keep_empty_features=True  # Preserve all columns even if mostly missing
-        )
+            n_neighbors=n_neighbors)
         
         # Perform imputation
         logger.debug(f"Imputing missing values using {n_neighbors} neighbors")

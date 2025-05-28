@@ -181,7 +181,7 @@ def quasibiclique(X_matrix, error_rate = 0.025):
                 seed_rows = x
                 seed_cols = y
 
-    env = grb.Env(params=options, logToConsole=0)      
+    env = grb.Env(params=options)      
     model = grb.Model('max_model', env=env)          
     model.Params.OutputFlag = 0
     model.Params.MIPGAP = 0.05
