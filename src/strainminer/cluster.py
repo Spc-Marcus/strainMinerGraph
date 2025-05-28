@@ -6,9 +6,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 options = {
-	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
-	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
-	"LICENSEID":2669217
+	"WLSACCESSID":"XXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+	"WLSSECRET":"XXXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXX",
+	"LICENSEID":00000000,
 }
 
 def clustering_full_matrix(

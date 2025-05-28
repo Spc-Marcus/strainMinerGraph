@@ -6,7 +6,7 @@ import numpy as np
 import pysam as ps
 
 # Package version information
-__version__ = "1.1.0"
+__version__ = "2.0.0"
 
 # Configure module-level logging
 logger = logging.getLogger(__name__)
@@ -296,9 +296,6 @@ def setup_output_directories(output_path: str) -> Dict[str, str]:
         - 'output_dir': Main output directory
         - 'tmp_dir': Temporary files  
         - 'logs_dir': Log files
-        - 'results_dir': Final results
-        - 'intermediate_dir': Intermediate processing files
-        
     """
     output_dir = Path(output_path).resolve()
     
@@ -308,10 +305,7 @@ def setup_output_directories(output_path: str) -> Dict[str, str]:
     # Define subdirectory structure
     subdirs = {
         'tmp_dir': output_dir / 'tmp',
-        'logs_dir': output_dir / 'logs',
-        'results_dir': output_dir / 'results', 
-        'intermediate_dir': output_dir / 'intermediate'
-    }
+        'logs_dir': output_dir / 'logs'}
     
     # Create all subdirectories
     for purpose, dir_path in subdirs.items():

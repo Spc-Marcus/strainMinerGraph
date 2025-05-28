@@ -26,9 +26,9 @@ from sklearn.metrics import pairwise_distances
 # }
 
 options = {
-	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
-	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
-	"LICENSEID":2669217
+	"WLSACCESSID":"XX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+	"WLSSECRET":"XX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+	"LICENSEID":0000000
 }
 
 import time

@@ -1,5 +1,7 @@
 """
 StrainMiner - Microbial strain analysis tool
+Based on the work of Tam Khac Min Truong and Roland Faure
+Author: FOIN Marcus
 """
 
 from .core import __version__

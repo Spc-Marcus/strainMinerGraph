@@ -621,12 +621,12 @@ def parse_arguments() -> argparse.Namespace:
     output_opts = parser.add_argument_group('Output and Debugging Options')
     output_opts.add_argument(
         '--verbose', 
-        action='store_false',
+        action='store_true',
         help='Enable verbose logging output for detailed progress monitoring'
     )
     output_opts.add_argument(
         '--keep-temp', 
-        action='store_false',
+        action='store_true',
         help='Preserve temporary files after completion (useful for debugging)'
     )
     output_opts.add_argument(
@@ -656,7 +656,7 @@ def cleanup_temp_files(output_folder: str) -> None:
             shutil.rmtree(temp_dir)
             logger.debug(f"Removed temporary directory: {temp_dir}")
         
-        intermediate_dir = Path(output_folder) / "intermediate"
+        intermediate_dir = Path(output_folder)
         if intermediate_dir.exists():
             # Keep important intermediate files, remove only large temp files
             for pattern in ["*.sam", "*.unsorted.bam", "*.tmp"]:

@@ -1,11 +1,38 @@
 ---- contig: ctg0 ----
 
- - Between positions 0 and 10000 of the contig, I've created these contigs:
-   - ctg0_0_0
+ - Between positions 0 and 5000 of the contig, I've created these contigs:
    - ctg0_0_1
- - Between positions 10000 and 10001 of the contig, I've created these contigs:
-   - ctg0_10000_-1
- - Between positions 10002 and 10001 of the contig, I've created these contigs:
-   - ctg0_10002_0
+   - ctg0_0_0
+ - Between positions 5000 and 10000 of the contig, I've created these contigs:
+   - ctg0_5000_0
+   - ctg0_5000_2
+   - ctg0_5000_1
+ - Between positions 10000 and 25000 of the contig, I've created these contigs:
+   - ctg0_10000_1
+   - ctg0_10000_0
+ - Between positions 25000 and 30000 of the contig, I've created these contigs:
+   - ctg0_25000_-1
+ - Between positions 30000 and 35000 of the contig, I've created these contigs:
+   - ctg0_30000_0
+   - ctg0_30000_1
+ - Between positions 35000 and 65000 of the contig, I've created these contigs:
+   - ctg0_35000_-1
+ - Between positions 65000 and 70000 of the contig, I've created these contigs:
+   - ctg0_65000_1
+   - ctg0_65000_0
+ - Between positions 70000 and 75000 of the contig, I've created these contigs:
+   - ctg0_70000_1
+   - ctg0_70000_0
+ - Between positions 75000 and 85000 of the contig, I've created these contigs:
+   - ctg0_75000_1
+   - ctg0_75000_2
+   - ctg0_75000_0
+ - Between positions 85000 and 100000 of the contig, I've created these contigs:
+   - ctg0_85000_1
+   - ctg0_85000_0
+ - Between positions 100000 and 100001 of the contig, I've created these contigs:
+   - ctg0_100000_-1
+ - Between positions 100002 and 100001 of the contig, I've created these contigs:
+   - ctg0_100002_0
 
 
