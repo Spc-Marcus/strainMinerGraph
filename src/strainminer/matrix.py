@@ -3,6 +3,8 @@ import numpy as np
 from sklearn.cluster import FeatureAgglomeration
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.impute import KNNImputer
+import logging
+logger = logging.getLogger(__name__)
 
 
 def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> tuple:
@@ -103,12 +105,9 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     if m > 0 and n > 0:
         if certitude <0 or certitude>=0.5:
             raise ValueError("Certitude must be in the range [0, 0.5).")
-        upper,lower = 1 - certitude, certitude
         # Impute missing values using KNN
-        imputer = KNNImputer(n_neighbors=10)
-        matrix = imputer.fit_transform(input_matrix)
-        # Binarize the matrix
-        matrix = np.where(matrix >= upper, 1, np.where(matrix <= lower, 0, default))
+        matrix = impute_missing_values(input_matrix, n_neighbors=10)
+        matrix = binarize_matrix(matrix, certitude=certitude, default=default)
     else:
         matrix = input_matrix
 
@@ -188,3 +187,195 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
                     steps.append((cluster1, cluster0, region))
 
     return matrix, inhomogenious_regions, steps
+
+def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarray:
+    """
+    Impute missing values in a genomic variant matrix using K-Nearest Neighbors.
+    
+    This function fills missing or uncertain values in a variant matrix by leveraging
+    patterns from similar reads. It uses the K-Nearest Neighbors algorithm to identify
+    reads with similar variant patterns and imputes missing values based on the
+    consensus of these neighbors.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Input matrix with shape (n_reads, n_positions) containing variant calls.
+        Values can include:
+        - 0: Reference allele or major variant
+        - 1: Alternative allele or minor variant  
+        - np.nan: Missing or uncertain values to be imputed
+        - Other numerical values: Intermediate probabilities or quality scores
+        
+        Missing values (np.nan, None) will be replaced with estimated values
+        based on K nearest neighbors.
+        
+    n_neighbors : int, optional
+        Number of nearest neighbors to use for imputation. Must be positive
+        and less than the number of reads with complete data.
+        Default is 10.
+        
+    Returns
+    -------
+    np.ndarray
+        Matrix with same shape as input but with missing values imputed.
+        All np.nan values will be replaced with estimated values based on
+        the K-nearest neighbors algorithm. Original non-missing values are
+        preserved unchanged.
+        
+        **Value range**: Imputed values will be in the range of existing
+        non-missing values in the dataset (typically 0-1 for binary variants).
+
+    Raises
+    ------
+    ValueError
+        If n_neighbors is not positive or exceeds the number of complete reads
+    MemoryError
+        If matrix is too large for available system memory
+    RuntimeError
+        If imputation fails due to insufficient non-missing data
+        
+    See Also
+    --------
+    binarize_matrix : Often applied after imputation to ensure binary values
+    pre_processing : Comprehensive preprocessing pipeline including imputation
+    sklearn.impute.KNNImputer : Underlying scikit-learn implementation
+    """
+    # Input validation
+    if matrix.size == 0:
+        return matrix.copy()
+        
+    if n_neighbors <= 0:
+        raise ValueError(f"n_neighbors must be positive, got {n_neighbors}")
+    
+    # Check if there are any missing values to impute
+    if not np.isnan(matrix).any():
+        logger.debug("No missing values found, returning original matrix")
+        return matrix.copy()
+    
+    # Check for sufficient non-missing data
+    n_reads = matrix.shape[0]
+    if n_neighbors >= n_reads:
+        logger.warning(f"n_neighbors ({n_neighbors}) >= n_reads ({n_reads}), using {n_reads-1}")
+        n_neighbors = max(1, n_reads - 1)
+    
+    try:
+        # Initialize KNN imputer with specified parameters
+        imputer = KNNImputer(
+            n_neighbors=n_neighbors,
+            weights='distance',  # Weight by inverse distance for better local fit
+            metric='nan_euclidean',  # Handle missing values during distance computation
+            keep_empty_features=True  # Preserve all columns even if mostly missing
+        )
+        
+        # Perform imputation
+        logger.debug(f"Imputing missing values using {n_neighbors} neighbors")
+        imputed_matrix = imputer.fit_transform(matrix)
+        
+        # Log imputation statistics
+        original_missing = np.isnan(matrix).sum()
+        remaining_missing = np.isnan(imputed_matrix).sum()
+        success_rate = (original_missing - remaining_missing) / max(1, original_missing) * 100
+        
+        logger.info(f"Imputation completed: {original_missing} → {remaining_missing} missing values "
+                   f"({success_rate:.1f}% success rate)")
+        
+        return imputed_matrix
+        
+    except Exception as e:
+        logger.error(f"Imputation failed: {e}")
+        raise RuntimeError(f"Could not impute missing values: {e}") from e
+
+
+def binarize_matrix(matrix: np.ndarray, certitude: float = 0.3, default: int = 0) -> np.ndarray:
+    """
+    Binarize a continuous variant matrix using certainty-based thresholds.
+    
+    This function converts continuous or probabilistic variant values into binary
+    classifications (0/1) based on confidence thresholds. Values with high certainty
+    are assigned definitive binary values, while uncertain values receive a default
+    assignment. This is essential for clustering algorithms that require binary input.
+    
+    The binarization strategy uses symmetric thresholds around 0.5 to classify
+    values as definitely 0, definitely 1, or uncertain. This approach preserves
+    high-confidence variant calls while handling ambiguous cases consistently.
+    
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Input matrix with shape (n_reads, n_positions) containing continuous
+        variant values. Typically contains:
+        - Values near 0: Strong evidence for reference allele
+        - Values near 1: Strong evidence for alternative allele  
+        - Values near 0.5: Uncertain/ambiguous evidence
+        - Values between 0-1: Probabilistic variant calls
+        
+        **Expected input range**: Most algorithms assume values in [0, 1] range,
+        though the function handles arbitrary numeric values.
+        
+    certitude : float, optional
+        Certainty threshold for binary classification (0.0 ≤ certitude < 0.5).
+        Default is 0.3 (30% certainty requirement).
+        
+    default : int, optional
+        Default value assigned to uncertain entries that fall between thresholds
+        Default is 0 (conservative approach).
+        
+    Returns
+    -------
+    np.ndarray
+        Binarized matrix with same shape as input. All values converted to:
+        - 0: Reference allele or confident non-variant
+        - 1: Alternative allele or confident variant
+        - default: Uncertain values (as specified by default parameter)
+        
+        **Data type**: Returns integer array for efficient processing in
+        clustering algorithms.
+        
+    Raises
+    ------
+    ValueError
+        If certitude is not in valid range [0, 0.5)
+    TypeError
+        If matrix contains non-numeric values
+        
+    See Also
+    --------
+    impute_missing_values : Often applied before binarization
+    pre_processing : Complete preprocessing pipeline including binarization
+    """
+    # Input validation
+    if not 0.0 <= certitude < 0.5:
+        raise ValueError(f"Certitude must be in range [0, 0.5), got {certitude}")
+    
+    if matrix.size == 0:
+        return matrix.astype(int)
+    
+    # Check for non-numeric values
+    if not np.issubdtype(matrix.dtype, np.number):
+        raise TypeError("Matrix must contain numeric values")
+    
+    # Calculate thresholds
+    lower_threshold = certitude
+    upper_threshold = 1.0 - certitude
+    
+    logger.debug(f"Binarizing matrix with thresholds: ≤{lower_threshold:.3f} → 0, "
+                f"≥{upper_threshold:.3f} → 1, between → {default}")
+    
+    # Apply three-way classification using numpy vectorized operations
+    # This is equivalent to nested np.where but more readable
+    result = np.full_like(matrix, default, dtype=int)
+    result[matrix <= lower_threshold] = 0
+    result[matrix >= upper_threshold] = 1
+    
+    # Log binarization statistics
+    n_zeros = (result == 0).sum()
+    n_ones = (result == 1).sum()
+    n_uncertain = (result == default).sum()
+    n_total = result.size
+    
+    logger.info(f"Binarization completed: {n_zeros} zeros ({n_zeros/n_total*100:.1f}%), "
+               f"{n_ones} ones ({n_ones/n_total*100:.1f}%), "
+               f"{n_uncertain} uncertain ({n_uncertain/n_total*100:.1f}%)")
+    
+    return result
