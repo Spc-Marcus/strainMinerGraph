@@ -1,17 +1,13 @@
 """
-StrainMiner - Un outil pour l'analyse des souches microbiennes
+StrainMiner - Microbial strain analysis tool
 """
 
-# Utilisez des importations relatives pour éviter les problèmes
-from .core import (
-    __version__,
-    file_path,
-    get_data
-)
+from .core import __version__
+from .pipeline import StrainMinerPipeline, run_strainminer_pipeline
 
-# Évitez l'importation circulaire en important init à l'utilisation
+# Public API
 __all__ = [
     '__version__',
-    'file_path',
-    'get_data'
+    'StrainMinerPipeline', 
+    'run_strainminer_pipeline'
 ]
