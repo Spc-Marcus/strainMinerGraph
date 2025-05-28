@@ -75,6 +75,14 @@ def clustering_full_matrix(
     4. **Result Filtering**: Return only clustering steps that satisfy:
        - Both row groups contain at least one element
        - Column set meets minimum quality requirements
+    
+    See Also
+    --------
+    clustering_step : Single iteration of binary pattern detection
+    find_quasi_biclique : Core optimization algorithm for dense pattern detection  
+    pre_processing : Preprocessing step that identifies initial regions and steps
+    post_processing : Final step that converts clustering steps to read groups
+    
     """
     # Initialize results with pre-existing clustering steps
     results = steps.copy()
@@ -180,7 +188,14 @@ def clustering_step(input_matrix: np.ndarray,
     5. **Termination Conditions**:
        - Stop when fewer than min_row_quality rows remain
        - Stop when fewer than min_col_quality columns remain  
-       - Stop when no significant patterns are detected"""
+       - Stop when no significant patterns are detected
+    
+    See Also
+    --------
+    clustering_full_matrix : Applies quasi-biclique detection across regions
+    find_quasi_biclique : Core optimization algorithm for dense pattern detection
+       
+    """
     # Initialize matrices: original and inverted for detecting 0-patterns
     matrix1 = input_matrix.copy()  # Matrix for detecting 1-patterns (positive patterns)
     matrix0 = np.where(input_matrix == -1, 1, 1 - input_matrix)  # Inverted matrix for detecting 0-patterns (negative patterns)
@@ -326,6 +341,22 @@ def find_quasi_biclique(
     - `x_ij ≤ c_j` : Cell selected only if column selected
     - `x_ij ≥ r_i + c_j - 1` : Cell selected if both row and column selected
     - `Σ_{i,j} x_ij × (1-M[i,j]) ≤ error_rate × Σ_{i,j} x_ij` : Density constraint
+    
+    Raises
+    ------
+    gurobipy.GurobiError
+        If Gurobi optimization fails due to licensing or solver issues
+    numpy.linalg.LinAlgError  
+        If matrix operations fail due to invalid dimensions or data
+    MemoryError
+        If insufficient memory for optimization model creation
+
+    See Also
+    --------
+    setup_gurobi_model : Model configuration and parameter setup
+    clustering_step : Uses quasi-biclique detection for alternating patterns
+    clustering_full_matrix : Applies quasi-biclique detection across regions
+    
     """
     # Copy input matrix to avoid modifying original
     matrix = input_matrix.copy()
@@ -363,11 +394,11 @@ def find_quasi_biclique(
                 seed_cols = j
 
     # Initialize Gurobi optimization environment
-    env = grb.Env(params=options, logsToConsole=0)
-    model = grb.Model('Max_model', env=env)
-    model.Params.OutputFlag = 0  # Suppress console output
-    model.Params.MIPGAP = 0.05   # Set MIP gap tolerance
-    model.Params.TimeLimit = 20  # Set time limit (seconds)
+    try:
+        model = setup_gurobi_model(error_rate=error_rate)
+    except Exception as e:
+        print(f"Warning: Failed to setup Gurobi model: {e}")
+        return [], [], False
 
     # Phase 1: Seeding Optimization
     # Create binary variables for initial seed region
@@ -480,3 +511,64 @@ def find_quasi_biclique(
     
     # Successful optimization
     return final_rows, final_cols, True
+
+
+def setup_gurobi_model(error_rate: float = 0.025, time_limit: int = 20, mip_gap: float = 0.05) -> grb.Model:
+    """
+    Setup Gurobi optimization model with standard parameters for quasi-biclique detection.
+    
+    This function creates and configures a Gurobi optimization environment with 
+    predefined parameters optimized for quasi-biclique detection problems. It handles
+    licensing, logging, and solver parameter configuration.
+    
+    Parameters
+    ----------
+    error_rate : float, optional
+        Error tolerance for quasi-biclique detection. This parameter is stored
+        for reference but doesn't directly affect model setup. Default is 0.025.
+    time_limit : int, optional
+        Maximum time in seconds allowed for optimization. Default is 20 seconds.
+    mip_gap : float, optional
+        Mixed Integer Programming gap tolerance. Optimization stops when gap
+        between best solution and best bound is below this threshold. Default is 0.05 (5%).
+    
+    Returns
+    -------
+    grb.Model
+        Configured Gurobi optimization model ready for variable and constraint addition.
+        The model has the following pre-configured parameters:
+        - OutputFlag = 0 (suppress console output)
+        - TimeLimit = time_limit
+        - MIPGAP = mip_gap
+
+    Raises
+    ------
+    gurobipy.GurobiError
+        If Gurobi license is invalid or environment setup fails
+
+    See Also
+    --------
+    find_quasi_biclique : Main function using this model setup
+    clustering_step : Uses quasi-biclique detection with these models
+    """
+    try:
+        # Create Gurobi environment with license configuration
+        env = grb.Env(params=options, logToConsole=0)
+        
+        # Create optimization model
+        model = grb.Model('StrainMiner_QuasiBiclique', env=env)
+        
+        # Configure solver parameters
+        model.Params.OutputFlag = 0        # Suppress console output
+        model.Params.TimeLimit = time_limit # Set time limit in seconds
+        model.Params.MIPGAP = mip_gap      # Set MIP gap tolerance
+        
+        # Optional: Add additional performance parameters
+        model.Params.Threads = 1           # Single-threaded for consistency
+        model.Params.Presolve = 2          # Aggressive presolve
+        model.Params.Cuts = 2              # Aggressive cutting planes
+        
+        return model
+        
+    except grb.GurobiError as e:
+        raise grb.GurobiError(f"Failed to setup Gurobi model: {e}")
