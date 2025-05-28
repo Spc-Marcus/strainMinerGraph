@@ -53,10 +53,8 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     if df.empty:
         return np.array([]), []
     
-    # CORRECTION: Déterminer les allèles majoritaires pour chaque position
     logger.debug(f"Processing {df.shape[1]} positions with {df.shape[0]} reads")
     
-    # Pour chaque position, déterminer l'allèle majoritaire
     variant_matrix = df.copy()
     
     for col in df.columns:
@@ -65,7 +63,6 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
         if len(position_data) == 0:
             continue
             
-        # Compter les allèles à cette position
         allele_counts = position_data.value_counts()
         
         if len(allele_counts) == 0:
@@ -77,7 +74,6 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
             
             variant_matrix[col] = (df[col] != majority_allele).astype(int)
             
-            # Garder les NaN comme NaN pour l'imputation ultérieure
             variant_matrix.loc[df[col].isna(), col] = np.nan
             
         logger.debug(f"Position {col}: majority={majority_allele}, "
@@ -85,11 +81,9 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     
     # Filter reads that span the window (existing logic)
     if len(variant_matrix.columns) >= 3:
-        # Filtrer les reads sans données dans le premier tiers
         tmp_idx = variant_matrix.iloc[:, :len(variant_matrix.columns)//3].dropna(axis=0, how='all')
         variant_matrix = variant_matrix.loc[tmp_idx.index, :]
         
-        # Filtrer les reads sans données dans le dernier tiers
         tmp_idx = variant_matrix.iloc[:, 2*len(variant_matrix.columns)//3:].dropna(axis=0, how='all')
         variant_matrix = variant_matrix.loc[tmp_idx.index, :]
     

@@ -226,7 +226,6 @@ def clustering_step(input_matrix: np.ndarray,
         rw = [remain_rows[r] for r in rw]  # Map row indices to original matrix
         cl = [current_cols[c] for c in cl]  # Map column indices to original matrix
         
-        # Use columns directly from quasi-biclique detection without additional filtering
         current_cols = cl  # Update working column set to detected significant columns
         
         # Accumulate rows into appropriate pattern group if valid pattern found

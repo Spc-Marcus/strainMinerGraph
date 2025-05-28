@@ -267,77 +267,40 @@ def init(assembly_file: str,
          verbose: bool = False,
          keep_temp: bool = False) -> int:
     """
-    Initialize and execute the complete StrainMiner pipeline.
-    
-    This function serves as the main orchestrator for the StrainMiner workflow,
-    handling environment setup, parameter validation, pipeline execution,
-    progress monitoring, and cleanup operations. It provides comprehensive 
-    error handling and detailed progress reporting.
-    
+    Initialize and execute the StrainMiner pipeline.
+
     Parameters
     ----------
     assembly_file : str
-        Path to assembly file in GFA format containing reference contigs.
-        Must be readable and properly formatted.
+        Assembly file in GFA format
     bam_file : str
-        Path to alignment file in BAM format containing mapped reads.
-        Must be indexed for efficient random access.
+        Indexed BAM file with aligned reads
     reads_file : str
-        Path to sequencing reads file (FASTQ/FASTA format, optionally compressed).
-        Used for assembly polishing and validation steps.
+        Sequencing reads (FASTQ/FASTA, optionally compressed)
     output_folder : str
-        Path to output directory where all results will be written.
-        Directory will be created if it doesn't exist.
+        Output directory path
     error_rate : float, optional
-        Expected sequencing error rate for optimization algorithms.
-        Should reflect actual data quality. Typical values:
-        - Illumina: 0.01-0.025
-        - PacBio: 0.05-0.1  
-        - Oxford Nanopore: 0.08-0.15
-        Default is 0.025 (2.5%).
+        Expected sequencing error rate (default: 0.025)
     window : int, optional
-        Size of genomic windows for sliding-window analysis in base pairs.
-        Smaller windows provide higher resolution but increase computation time.
-        Should be chosen based on:
-        - Read length: window should be ≥ 2× average read length
-        - Resolution needs: smaller for fine-scale analysis
-        - Computational resources: larger for speed
-        Default is 5000 bp.
+        Genomic window size in bp (default: 5000)
     min_coverage : float, optional
-        Minimum coverage threshold for variant positions (0.0-1.0).
-        Positions covered by fewer reads are filtered out to improve
-        confidence. Higher values increase stringency. Default is 0.6 (60%).
+        Minimum coverage threshold 0.0-1.0 (default: 0.6)
     min_row_quality : int, optional
-        Minimum number of reads required for a valid cluster.
-        Clusters with fewer reads are discarded as low-confidence.
-        Should be balanced with expected strain abundance. Default is 5.
+        Minimum reads per cluster (default: 5)
     min_col_quality : int, optional
-        Minimum number of genomic positions required for region processing.
-        Regions with fewer positions are skipped to focus on informative areas.
-        Default is 3.
+        Minimum positions per region (default: 3)
     min_base_quality : int, optional
-        Minimum base quality score (Phred scale) required for variant calling.
-        Low-quality bases are filtered out to reduce false positives.
-        Typical values: 10-20 for most applications. Default is 10.
+        Minimum base quality score (default: 10)
     verbose : bool, optional
-        Enable verbose logging output for debugging and detailed monitoring.
-        Increases console output significantly. Default is False.
+        Enable verbose logging (default: False)
     keep_temp : bool, optional
-        Preserve temporary files after completion for inspection or debugging.
-        Useful for troubleshooting but requires additional disk space.
-        Default is False (cleanup temporary files).
-        
+        Keep temporary files (default: False)
+
     Returns
     -------
     int
-        Exit code indicating pipeline execution status:
-        - 0: Successful completion
-        - 1: Input validation error  
-        - 2: Pipeline execution error
-        - 3: Output writing error
-        - 4: Environment setup error
-        - 5: System resource error
-        
+        Exit code: 0=success, 1=validation error, 2=execution error
+
     Examples
     --------
     Basic pipeline execution:
@@ -458,11 +421,8 @@ def init(assembly_file: str,
         except ImportError:
             logger.debug("psutil not available - skipping memory check")
         
-        # REMPLACER cette section placeholder :
         # logger.info("Starting StrainMiner pipeline execution")
-        # logger.info("Pipeline execution would start here...")
         
-        # PAR le vrai appel du pipeline :
         logger.info("Starting StrainMiner pipeline execution")
         
         final_assembly = run_strainminer_pipeline(
@@ -523,7 +483,6 @@ def parse_arguments() -> argparse.Namespace:
         python -m strainminer -a assembly.gfa -b ont.bam -r ont.fastq -o output/ \\
                                 --error-rate 0.08 --min-base-quality 7
     """
-    # AJOUTER CETTE LIGNE MANQUANTE :
     parser = argparse.ArgumentParser(
         description=f'StrainMiner v{__version__} - Microbial strain separation pipeline',
         formatter_class=argparse.RawDescriptionHelpFormatter,
