@@ -428,10 +428,13 @@ def init(assembly_file: str,
     validate_input_files : Input validation details
     setup_output_directories : Output directory structure
     """
+    start_time = datetime.now()
+    
     try:
-        # Setup execution environment
+        # Setup logging
         env_paths = setup_environment(output_folder, verbose)
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger(__name__)  # Get logger after setup
+        
         
         logger.info(f"StrainMiner v{__version__} - Pipeline Initialization")
         logger.info(f"Assembly: {assembly_file}")
@@ -439,77 +442,58 @@ def init(assembly_file: str,
         logger.info(f"Reads: {reads_file}")
         logger.info(f"Output: {output_folder}")
         
-    except Exception as e:
-        print(f"ERROR: Environment setup failed: {e}")
-        return 4
-    
-    try:
-        # Create args-like object for validation
-        args = argparse.Namespace(
-            assembly=assembly_file,
-            bam=bam_file, 
-            reads=reads_file,
-            output=output_folder,
+        # Validate inputs
+        if not validate_input_files(bam_file, assembly_file, reads_file):            
+            return 1
+        
+        logger.info("Input validation completed successfully")
+        
+        # Check system resources
+        try:
+            import psutil
+            memory_gb = psutil.virtual_memory().total / (1024**3)
+            logger.info(f"Available memory: {memory_gb:.1f} GB")
+            if memory_gb < 4:
+                logger.warning("Less than 4GB memory available - consider using larger windows")
+        except ImportError:
+            logger.debug("psutil not available - skipping memory check")
+        
+        # REMPLACER cette section placeholder :
+        # logger.info("Starting StrainMiner pipeline execution")
+        # logger.info("Pipeline execution would start here...")
+        
+        # PAR le vrai appel du pipeline :
+        logger.info("Starting StrainMiner pipeline execution")
+        
+        final_assembly = run_strainminer_pipeline(
+            bam_file=bam_file,
+            assembly_file=assembly_file,
+            reads_file=reads_file,
+            output_dir=output_folder,
             error_rate=error_rate,
-            window=window,
+            window_size=window,
             min_coverage=min_coverage,
             min_row_quality=min_row_quality,
             min_col_quality=min_col_quality,
             min_base_quality=min_base_quality
         )
         
-        # Validate all arguments
-        validate_arguments(args)
-        logger.info("Input validation completed successfully")
+        # Calculate runtime
+        runtime = datetime.now() - start_time
+        logger.info(f"Pipeline completed successfully in {runtime}")
+        logger.info(f"Final assembly: {final_assembly}")
+        logger.info(f"Results written to: {Path(output_folder).absolute() / 'results'}")
         
-        # Check system resources
-        check_system_resources(args)
-        
-    except Exception as e:
-        logger.error(f"Validation failed: {e}")
-        return 1
-    
-    try:
-        # Execute main pipeline
-        logger.info("Starting StrainMiner pipeline execution")
-        start_time = datetime.now()
-        
-        # This would call the main pipeline function
-        # For now, this is a placeholder that would be replaced with actual pipeline call
-        logger.info("Pipeline execution would start here...")
-        
-        # Placeholder for actual pipeline execution:
-        # result = run_strainminer_pipeline(
-        #     assembly_file=assembly_file,
-        #     bam_file=bam_file,
-        #     reads_file=reads_file,
-        #     output_dir=env_paths['output_dir'],
-        #     error_rate=error_rate,
-        #     window=window,
-        #     min_coverage=min_coverage,
-        #     min_row_quality=min_row_quality,
-        #     min_col_quality=min_col_quality,
-        #     min_base_quality=min_base_quality,
-        #     tmp_dir=env_paths['tmp_dir'],
-        #     verbose=verbose
-        # )
-        
-        end_time = datetime.now()
-        elapsed = end_time - start_time
-        
-        logger.info(f"Pipeline completed successfully in {elapsed}")
-        logger.info(f"Results written to: {env_paths['results_dir']}")
-        
-        # Cleanup temporary files if requested
+        # Cleanup if requested
         if not keep_temp:
             logger.info("Cleaning up temporary files...")
-            # Add cleanup logic here
+            cleanup_temp_files(output_folder)
         
         return 0
         
     except Exception as e:
-        logger.error(f"Pipeline execution failed: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        runtime = datetime.now() - start_time
+        logger.error(f"Pipeline failed after {runtime}: {e}")
         return 2
 
 def parse_arguments() -> argparse.Namespace:
@@ -539,6 +523,26 @@ def parse_arguments() -> argparse.Namespace:
         python -m strainminer -a assembly.gfa -b ont.bam -r ont.fastq -o output/ \\
                                 --error-rate 0.08 --min-base-quality 7
     """
+    # AJOUTER CETTE LIGNE MANQUANTE :
+    parser = argparse.ArgumentParser(
+        description=f'StrainMiner v{__version__} - Microbial strain separation pipeline',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+            Examples:
+            # Basic usage
+            python -m strainminer -a assembly.gfa -b reads.bam -r reads.fastq -o output/
+            
+            # High-resolution analysis
+            python -m strainminer -a assembly.gfa -b reads.bam -r reads.fastq -o output/ \\
+                                    --error-rate 0.01 --window 2000 --verbose
+            
+            # Long-read analysis  
+            python -m strainminer -a assembly.gfa -b ont.bam -r ont.fastq -o output/ \\
+                                    --error-rate 0.08 --min-base-quality 7
+
+            For more information, visit: https://github.com/your-repo/strainminer
+                    """
+    )
     
     # Required arguments
     required = parser.add_argument_group('Required Arguments')
@@ -632,6 +636,39 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     return parser.parse_args()
+
+def cleanup_temp_files(output_folder: str) -> None:
+    """
+    Clean up temporary files if keep_temp is False.
+    
+    Parameters
+    ----------
+    output_folder : str
+        Output directory containing temp files
+    """
+    import shutil
+    
+    # CORRECTION: Récupérer le logger dans la fonction
+    logger = logging.getLogger(__name__)
+    
+    try:
+        temp_dir = Path(output_folder) / "tmp"
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+            logger.debug(f"Removed temporary directory: {temp_dir}")
+        
+        intermediate_dir = Path(output_folder) / "intermediate"
+        if intermediate_dir.exists():
+            # Keep important intermediate files, remove only large temp files
+            for pattern in ["*.sam", "*.unsorted.bam", "*.tmp"]:
+                for temp_file in intermediate_dir.glob(pattern):
+                    temp_file.unlink()
+                    logger.debug(f"Removed temp file: {temp_file}")
+                    
+    except Exception as e:
+        logger.warning(f"Could not clean all temporary files: {e}")
+
+
 
 def main() -> int:
     """

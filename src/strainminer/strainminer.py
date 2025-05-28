@@ -181,7 +181,7 @@ def quasibiclique(X_matrix, error_rate = 0.025):
                 seed_rows = x
                 seed_cols = y
 
-    env = grb.Env(params=options)      
+    env = grb.Env(params=options, logToConsole=0)      
     model = grb.Model('max_model', env=env)          
     model.Params.OutputFlag = 0
     model.Params.MIPGAP = 0.05
@@ -642,7 +642,6 @@ if __name__ == '__main__':
             else:
                 # Fallback si le read n'est pas trouvé dans l'alignement
                 sol_file.write(f'READ\t{r}\t-1\t-1\t-1\t-1\t-1\n')
-        print("haplotypes", haplotypes,"#############\n")
 
         for w in range(len(haplotypes)):
             sol_file.write(f'GROUP\t{w*window}\t{min(contig_length, (w+1)*window)}\t')
