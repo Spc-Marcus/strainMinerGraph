@@ -2,10 +2,12 @@ import numpy as np
 import logging
 from typing import List, Tuple
 from sklearn.cluster import AgglomerativeClustering
+from ..decorateur.perf import print_decorator
 
 logger = logging.getLogger(__name__)
 
 
+@print_decorator('postprocessing')
 def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], List[int]]], 
                    read_names: List[str], distance_thresh: float = 0.1) -> List[np.ndarray]:
     """

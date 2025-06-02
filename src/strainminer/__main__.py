@@ -265,7 +265,8 @@ def init(assembly_file: str,
          min_col_quality: int = 3,
          min_base_quality: int = 10,
          verbose: bool = False,
-         keep_temp: bool = False) -> int:
+         keep_temp: bool = False,
+         print_mode: Optional[str] = None) -> int:
     """
     Initialize and execute the StrainMiner pipeline.
 
@@ -398,6 +399,11 @@ def init(assembly_file: str,
         env_paths = setup_environment(output_folder, verbose)
         logger = logging.getLogger(__name__)  # Get logger after setup
         
+        # Configure print mode si spécifié
+        if print_mode:
+            from ..decorateur.perf import set_print_mode
+            set_print_mode(print_mode)
+            logger.info(f"Debug print mode enabled: {print_mode}")
         
         logger.info(f"StrainMiner v{__version__} - Pipeline Initialization")
         logger.info(f"Assembly: {assembly_file}")
@@ -435,7 +441,8 @@ def init(assembly_file: str,
             min_coverage=min_coverage,
             min_row_quality=min_row_quality,
             min_col_quality=min_col_quality,
-            min_base_quality=min_base_quality
+            min_base_quality=min_base_quality,
+            print_mode=print_mode
         )
         
         # Calculate runtime
@@ -589,6 +596,12 @@ def parse_arguments() -> argparse.Namespace:
         help='Preserve temporary files after completion (useful for debugging)'
     )
     output_opts.add_argument(
+        '--print',
+        choices=['start', 'end', 'all'],
+        help='Enable debug printing mode: start (matrix after create_matrix), '
+             'end (postprocessing info), all (comprehensive debugging)'
+    )
+    output_opts.add_argument(
         '--version', 
         action='version', 
         version=f'StrainMiner {__version__}'
@@ -663,7 +676,8 @@ def main() -> int:
             min_col_quality=args.min_col_quality,
             min_base_quality=args.min_base_quality,
             verbose=args.verbose,
-            keep_temp=args.keep_temp
+            keep_temp=args.keep_temp,
+            print_mode=getattr(args, 'print', None)
         )
         
         return exit_code

@@ -3,14 +3,17 @@ import numpy as np
 
 import gurobipy as grb
 import logging
+from ..decorateur.perf import print_decorator
+
 logger = logging.getLogger(__name__)
 
 options = {
-	"WLSACCESSID":"XXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
-	"WLSSECRET":"XXXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXX",
-	"LICENSEID":00000000,
+	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
+	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
+	"LICENSEID":2669217
 }
 
+@print_decorator('clustering')
 def clustering_full_matrix(
         input_matrix:np.ndarray, 
         regions :List[List[int]],
@@ -125,6 +128,8 @@ def clustering_full_matrix(
     
     # Filter and return only valid steps with non-empty groups and sufficient columns
     return [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
+
+@print_decorator('clustering')
 def clustering_step(input_matrix: np.ndarray,
                     error_rate: float = 0.025,
                     min_row_quality: int = 5,
@@ -244,10 +249,7 @@ def clustering_step(input_matrix: np.ndarray,
     logger.info(f"Final clustering results: rw1={len(rw1)}, rw0={len(rw0)}, current_cols={len(current_cols)}")
     return rw1, rw0, current_cols
 
-        
-
-
-
+@print_decorator('clustering')
 def find_quasi_biclique(
     input_matrix: np.ndarray,
     error_rate: float = 0.025

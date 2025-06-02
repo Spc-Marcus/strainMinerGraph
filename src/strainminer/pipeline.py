@@ -4,7 +4,7 @@ import logging
 import numpy as np
 import pandas as pd
 import pysam as ps
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from pathlib import Path
 
 from .core import get_data, setup_output_directories
@@ -236,7 +236,7 @@ class StrainMinerPipeline:
 
 def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str, 
                            output_dir: str, error_rate: float = 0.025, 
-                           window_size: int = 5000, **kwargs) -> str:
+                           window_size: int = 5000, print_mode: Optional[str] = None, **kwargs) -> str:
     """
     Main entry point function for StrainMiner pipeline execution.
     
@@ -254,6 +254,8 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
         Expected sequencing error rate
     window_size : int
         Window size for analysis
+    print_mode : Optional[str]
+        Debug print mode ('start', 'end', 'step', 'all')
     **kwargs
         Additional pipeline parameters
         
@@ -269,6 +271,12 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
     """
     try:
         logger.info("Starting StrainMiner pipeline execution")
+        
+        # Configure print mode if specified
+        if print_mode:
+            from ..decorateur.perf import set_print_mode
+            set_print_mode(print_mode)
+            logger.info(f"Debug print mode configured: {print_mode}")
         
         # Setup directories
         dir_paths = setup_output_directories(output_dir)

@@ -4,9 +4,12 @@ from sklearn.cluster import FeatureAgglomeration
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.impute import KNNImputer
 import logging
+from ..decorateur.perf import print_decorator
+
 logger = logging.getLogger(__name__)
 
 
+@print_decorator('matrix')
 def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> tuple:
     """
     Preprocess a dictionary of suspicious positions to create a filtered matrix.
@@ -101,6 +104,7 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     
     return matrix, reads
 
+@print_decorator('preprocessing')
 def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :int =0,certitude:float = 0.3)-> tuple:
     """
     Pre-processes the input matrix by imputing missing values, binarizing data, and identifying inhomogeneous regions.
@@ -243,6 +247,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
                f"Steps={len(steps)}")
     return matrix, inhomogenious_regions, steps
 
+@print_decorator('matrix')
 def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarray:
     """
     Impute missing values in a genomic variant matrix using K-Nearest Neighbors.
@@ -338,6 +343,7 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
         raise RuntimeError(f"Could not impute missing values: {e}") from e
 
 
+@print_decorator('matrix')
 def binarize_matrix(matrix: np.ndarray, certitude: float = 0.3, default: int = 0) -> np.ndarray:
     """
     Binarize a continuous variant matrix using certainty-based thresholds.
