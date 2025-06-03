@@ -51,7 +51,7 @@ def setup_logging(log_dir: str, verbose: bool = False) -> logging.Logger:
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
-    # Supprimer les logs Gurobi excessifs
+    # Suppress excessive Gurobi logs
     gurobi_logger = logging.getLogger('gurobipy')
     gurobi_logger.setLevel(logging.ERROR)
     gurobi_logger.propagate = False
@@ -404,7 +404,7 @@ def init(assembly_file: str,
         env_paths = setup_environment(output_folder, verbose)
         logger = logging.getLogger(__name__)  # Get logger after setup
         
-        # Configure print mode si spécifié
+        # Configure print mode if specified
         if print_mode:
             from ..decorateur.perf import set_print_mode
             set_print_mode(print_mode)
@@ -603,8 +603,8 @@ def parse_arguments() -> argparse.Namespace:
     output_opts.add_argument(
         '--print',
         choices=['start', 'end', 'all'],
-        help='Enable debug printing mode: start (matrix after create_matrix), '
-             'end (postprocessing info), all (comprehensive debugging)'
+        help='Enable debug printing mode: start (matrix after preprocessing), '
+             'end (postprocessing results), all (comprehensive debugging)'
     )
     output_opts.add_argument(
         '--version', 

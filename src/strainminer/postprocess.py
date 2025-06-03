@@ -69,8 +69,6 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
         # Go through each step and separate reads based on clustering decisions
         for step_idx, step in enumerate(steps):
             reads1, reads0, cols = step
-            
-            # CORRECTION: Convertir en listes si ce sont des générateurs
             if hasattr(reads1, '__iter__') and not isinstance(reads1, (list, tuple, np.ndarray)):
                 reads1 = list(reads1)
             if hasattr(reads0, '__iter__') and not isinstance(reads0, (list, tuple, np.ndarray)):
@@ -217,10 +215,10 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
             logger.debug(f"Converting cluster {cluster_idx} - type: {type(cluster)}, length: {len(cluster)}")
             
             if len(cluster) > 0:  # Only include non-empty clusters
-                # CORRECTION: S'assurer que cluster est une liste
+                # CORRECTION: Ensure cluster is a list
                 cluster_list = list(cluster) if not isinstance(cluster, list) else cluster
                 
-                # Filtrer les indices valides et convertir en noms de reads
+                # Filter valid indices and convert to read names
                 valid_indices = [r for r in cluster_list if isinstance(r, (int, np.integer)) and 0 <= r < len(read_names)]
                 
                 if len(valid_indices) > 0:

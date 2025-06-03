@@ -113,12 +113,14 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
 def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :int =0,certitude:float = 0.3)-> tuple:
     """
     Pre-processes the input matrix by imputing missing values, binarizing data, and identifying inhomogeneous regions.
+    
     Steps performed:
     1. Fills missing values in the input matrix using K-Nearest Neighbors (KNN) imputation.
     2. Binarizes the matrix based on upper and lower thresholds (values >= 1 - certitude set to 1, <= certitude set to 0, others set to default).
     3. Splits the matrix into regions (groups of columns) using hierarchical clustering (FeatureAgglomeration) based on Hamming distance.
     4. Further splits large or noisy regions and identifies inhomogeneous regions based on the distribution of values.
     5. Optionally, splits homogeneous regions into two clusters using AgglomerativeClustering.
+    
     Parameters
     ----------
     input_matrix : numpy.ndarray
@@ -129,6 +131,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
         Default value for uncertain entries (default is 0).
     certitude : float, optional
         Certainty threshold for binarization (default is 0.3).
+    
     Returns
     -------
     matrix : numpy.ndarray
@@ -138,6 +141,13 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     steps : list of tuple
         List of tuples describing the steps taken to split homogeneous regions. Each tuple contains:
             (cluster1_indices, cluster0_indices, region_columns)
+    
+    Notes
+    -----
+    **Display Integration**:
+    - 'start' mode: Shows processed matrix after imputation and binarization
+    - 'all' mode: Shows processed matrix and preprocessing steps summary
+    - Other modes: No visualization
     """
     
     m,n = input_matrix.shape
