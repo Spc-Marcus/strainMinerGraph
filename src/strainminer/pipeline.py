@@ -41,68 +41,6 @@ class StrainMinerPipeline:
         self.min_col_quality = min_col_quality
         self.filtered_col_threshold = 0.6
     
-    def process_genomic_window(self, alignment_file: ps.AlignmentFile, contig_name: str, 
-                             start_pos: int, end_pos: int) -> Tuple[List[np.ndarray], List[str]]:
-        """
-        Process complete genomic window through StrainMiner pipeline.
-        
-        Parameters
-        ----------
-        alignment_file : ps.AlignmentFile
-            Opened BAM alignment file
-        contig_name : str
-            Name of the contig to process
-        start_pos : int
-            Start position of the window
-        end_pos : int
-            End position of the window
-            
-        Returns
-        -------
-        Tuple[List[np.ndarray], List[str]]
-            Tuple of (clusters, read_names) where clusters is list of strain assignments
-            and read_names is list of corresponding read identifiers
-            
-        Raises
-        ------
-        RuntimeError
-            If window processing fails
-        """
-        try:
-            logger.debug(f"Processing window {contig_name}:{start_pos}-{end_pos}")
-            
-            # Extract variant data from alignment
-            dict_of_sus_pos = get_data(alignment_file, contig_name, start_pos, end_pos)
-            
-            if not dict_of_sus_pos:
-                logger.debug(f"No variants found in window {contig_name}:{start_pos}-{end_pos}")
-                return [], []
-            
-            # Create matrix from variant dictionary
-            matrix, reads = create_matrix(dict_of_sus_pos, self.filtered_col_threshold)
-            
-            if matrix.size == 0:
-                logger.debug(f"Empty matrix for window {contig_name}:{start_pos}-{end_pos}")
-                return [], reads
-            
-            # Preprocessing: imputation and binarization
-            processed_matrix, regions, steps = pre_processing(matrix, self.min_col_quality)
-            
-            # Clustering to identify strain groups
-            final_steps = clustering_full_matrix(
-                processed_matrix, regions, steps, 
-                self.min_row_quality, self.min_col_quality, self.error_rate
-            )
-            
-            # Post-processing to finalize clusters
-            clusters = post_processing(processed_matrix, final_steps, reads, distance_thresh=0.05)
-            
-            logger.info(f"Window {contig_name}:{start_pos}-{end_pos}: found {len(clusters)} strain groups")
-            return clusters, reads
-            
-        except Exception as e:
-            logger.error(f"Failed to process window {contig_name}:{start_pos}-{end_pos}: {e}")
-            raise RuntimeError(f"Window processing failed: {e}") from e
     
     def process_single_contig(self, file: ps.AlignmentFile, sol_file, contig: Dict[str, Any], 
                             window: int, tmp_dir: str, error_rate: float) -> Tuple[List[str], Dict[str, Tuple]]:
@@ -161,22 +99,11 @@ class StrainMinerPipeline:
                 haplotypes_here = {}
                 
                 if dict_of_sus_pos:
-                    # Create and filter matrix
-                    df = pd.DataFrame(dict_of_sus_pos)
-                    
-                    # Filter reads spanning the window
-                    if len(df.columns) >= 3:
-                        tmp_idx = df.iloc[:, :len(df.columns)//3].dropna(axis=0, how='all')
-                        df = df.loc[tmp_idx.index, :]
-                        tmp_idx = df.iloc[:, 2*len(df.columns)//3:].dropna(axis=0, how='all')
-                        df = df.loc[tmp_idx.index, :]
-                    
-                    df = df.dropna(axis=1, thresh=self.filtered_col_threshold * len(df.index))
-                    reads = list(df.index)
+                    # Create and filter matrix using create_matrix function
+                    X_matrix, reads = create_matrix(dict_of_sus_pos, self.filtered_col_threshold)
                     
                     # Clustering if sufficient data
-                    if not df.empty:
-                        X_matrix = df.to_numpy()
+                    if X_matrix.size > 0 and len(reads) > 0:
                         matrix, regions, steps = pre_processing(X_matrix, self.min_col_quality)
                         steps = clustering_full_matrix(
                             matrix, regions, steps, 

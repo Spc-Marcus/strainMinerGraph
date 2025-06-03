@@ -45,10 +45,10 @@ def create_matrix_decorator(func: Callable) -> Callable:
         
         # Appeler debug_matrix_start si mode start ou all
         if mode in ['start', 'all']:
-            # Vérifier que result est un tuple/liste avec au moins un élément qui est une matrice
-            if hasattr(result, '__len__') and len(result) >= 1:
+            # result est un tuple (matrix, reads)
+            if isinstance(result, (tuple, list)) and len(result) >= 1:
                 matrix = result[0]
-                if hasattr(matrix, 'shape'):
+                if hasattr(matrix, 'shape') and matrix.size > 0:
                     debug_matrix_start(matrix)
         
         return result
