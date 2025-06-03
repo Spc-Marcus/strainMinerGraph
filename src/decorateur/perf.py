@@ -2,6 +2,7 @@ import functools
 import logging
 from typing import Callable, Any, Optional
 import numpy as np
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,56 @@ def get_print_mode() -> Optional[str]:
     return _print_mode
 
 def debug_matrix_start(matrix: np.ndarray) -> None:
-    """Fonction appelée au début avec seulement la matrice."""
-    print(f"###################################################### Debugging Start - Matrix Shape: {matrix.shape} ######################################################")
+    """Fonction appelée au début avec seulement la matrice.
+    Affiche la forme de la matrice et sa distribution."""
+    
+    # Statistiques de la matrice
+    total_elements = matrix.size
+    ones = np.sum(matrix == 1)
+    zeros = np.sum(matrix == 0)
+    
+    print(f"  Matrix density: {ones/total_elements*100:.2f}% ones, {zeros/total_elements*100:.2f}% zeros")
+    
+    # Visualisation seulement si la matrice n'est pas trop grande
+    if matrix.size <= 10000:  # Limite pour éviter les graphiques trop lourds
+        try:
+            plt.figure(figsize=(15, 8))
+            
+            # Trier la matrice pour la visualisation
+            # Trier les lignes par nombre de 1s (densité décroissante)
+            row_sums = np.sum(matrix, axis=1)
+            row_order = np.argsort(row_sums)[::-1]  # ordre décroissant
+            
+            # Trier les colonnes par nombre de 1s (densité décroissante)
+            col_sums = np.sum(matrix, axis=0)
+            col_order = np.argsort(col_sums)[::-1]  # ordre décroissant
+            
+            # Appliquer le tri
+            sorted_matrix = matrix[np.ix_(row_order, col_order)]
+            
+            plt.imshow(sorted_matrix, cmap='gray_r', interpolation='nearest', 
+                      vmin=0, vmax=1, aspect='auto', extent=[0, matrix.shape[1], 0, matrix.shape[0]])
+            
+            # Titre avec les statistiques
+            title = (f'Matrix Visualization - Shape: {matrix.shape}\n'
+                    f'Total: {total_elements} | '
+                    f'Ones: {ones} ({ones/total_elements*100:.1f}%) | '
+                    f'Zeros: {zeros} ({zeros/total_elements*100:.1f}%)')
+            
+            plt.title(title, fontsize=10)
+            cbar = plt.colorbar(label='Value')
+            cbar.set_ticks([0, 1])
+            cbar.set_ticklabels(['0', '1'])
+            plt.xlabel('Genomic Positions')
+            plt.ylabel('Reads')
+            plt.tight_layout()
+            plt.show()
+        except ImportError:
+            print("matplotlib not available for visualization")
+        except Exception as e:
+            print(f"Could not create visualization: {e}")
+    else:
+        print(f"Matrix too large ({matrix.size} elements) for visualization - skipping plot")
 
 def debug_preprocessing(matrix: np.ndarray, steps: Any) -> None:
     """Fonction appelée pour le preprocessing avec matrice et steps."""
@@ -35,22 +84,11 @@ def debug_find_quasi_biclique(result_tuple: tuple) -> None:
     print(f"###################################################### Debugging Find Quasi Biclique - Result: {result_tuple} ######################################################")
 
 def create_matrix_decorator(func: Callable) -> Callable:
-    """Décorateur spécialisé pour create_matrix."""
+    """Décorateur spécialisé pour create_matrix - désactivé car appelé manuellement."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        mode = get_print_mode()
-        
-        # Exécuter la fonction
+        # Ne plus appeler automatiquement debug_matrix_start
         result = func(*args, **kwargs)
-        
-        # Appeler debug_matrix_start si mode start ou all
-        if mode in ['start', 'all']:
-            # result est un tuple (matrix, reads)
-            if isinstance(result, (tuple, list)) and len(result) >= 1:
-                matrix = result[0]
-                if hasattr(matrix, 'shape') and matrix.size > 0:
-                    debug_matrix_start(matrix)
-        
         return result
     return wrapper
 
@@ -135,9 +173,7 @@ def print_decorator(debug_type: str):
     """
     def decorator(func: Callable) -> Callable:
         # Dispatcher vers le bon décorateur selon le nom de la fonction
-        if func.__name__ == 'create_matrix':
-            return create_matrix_decorator(func)
-        elif func.__name__ == 'pre_processing':
+        if func.__name__ == 'pre_processing':
             return preprocessing_decorator(func)
         elif func.__name__ == 'post_processing':
             return postprocessing_decorator(func)

@@ -105,6 +105,13 @@ class StrainMinerPipeline:
                     # Clustering if sufficient data
                     if X_matrix.size > 0 and len(reads) > 0:
                         matrix, regions, steps = pre_processing(X_matrix, self.min_col_quality)
+                        
+                        # Appeler debug_matrix_start après l'imputation des NaN
+                        from ..decorateur.perf import get_print_mode, debug_matrix_start
+                        mode = get_print_mode()
+                        if mode in ['start', 'all']:
+                            debug_matrix_start(matrix)
+                        
                         steps = clustering_full_matrix(
                             matrix, regions, steps, 
                             self.min_row_quality, self.min_col_quality, error_rate

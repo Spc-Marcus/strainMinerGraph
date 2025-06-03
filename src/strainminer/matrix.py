@@ -9,7 +9,7 @@ from ..decorateur.perf import print_decorator
 logger = logging.getLogger(__name__)
 
 
-@print_decorator('matrix')
+
 def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> tuple:
     """
     Preprocess a dictionary of suspicious positions to create a filtered matrix.
@@ -71,16 +71,20 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
         if len(allele_counts) == 0:
             continue
         elif len(allele_counts) == 1:
-            variant_matrix[col] = 0
+            # Position monomorphe - tous les reads ont la même valeur
+            variant_matrix[col] = 1  # Tous identiques à la référence = 1
         else:
-            majority_allele = allele_counts.index[0]  # Plus fréquent
+            majority_allele = allele_counts.index[0]  # Plus fréquent (référence)
             
-            variant_matrix[col] = (df[col] != majority_allele).astype(int)
+            # CORRECTION: 1 = identique à la référence (majority), 0 = variant
+            variant_matrix[col] = (df[col] == majority_allele).astype(int)
             
+            # Conserver les NaN pour les positions manquantes
             variant_matrix.loc[df[col].isna(), col] = np.nan
             
         logger.debug(f"Position {col}: majority={majority_allele}, "
-                    f"variants={(variant_matrix[col] == 1).sum()}")
+                    f"reference_calls={(variant_matrix[col] == 1).sum()}, "
+                    f"variant_calls={(variant_matrix[col] == 0).sum()}")
     
     # Filter reads that span the window (existing logic)
     if len(variant_matrix.columns) >= 3:
