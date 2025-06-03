@@ -100,7 +100,7 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     # Convert to numpy matrix
     matrix = variant_matrix.to_numpy() if not variant_matrix.empty else np.array([])
     
-    logger.info(f"Matrix created: {matrix.shape} with {len(reads)} reads")
+    logger.debug(f"Matrix created: {matrix.shape} with {len(reads)} reads")
     
     return matrix, reads
 
@@ -230,19 +230,19 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     output_total = matrix.size
     
     # Log debug info instead of saving to file
-    logger.info(f"Matrix Processing Debug Info:")
-    logger.info(f"INPUT MATRIX {input_matrix.shape}: "
+    logger.debug(f"Matrix Processing Debug Info:")
+    logger.debug(f"INPUT MATRIX {input_matrix.shape}: "
                f"Total={input_total}, "
                f"Ones={input_ones} ({input_ones/input_total*100:.2f}%), "
                f"Zeros={input_zeros} ({input_zeros/input_total*100:.2f}%), "
                f"NaNs={input_nans} ({input_nans/input_total*100:.2f}%)")
     
-    logger.info(f"OUTPUT MATRIX {matrix.shape}: "
+    logger.debug(f"OUTPUT MATRIX {matrix.shape}: "
                f"Total={output_total}, "
                f"Ones={output_ones} ({output_ones/output_total*100:.2f}%), "
                f"Zeros={output_zeros} ({output_zeros/output_total*100:.2f}%)")
     
-    logger.info(f"REGIONS: Total={len(regions)}, "
+    logger.debug(f"REGIONS: Total={len(regions)}, "
                f"Inhomogeneous={len(inhomogenious_regions)}, "
                f"Steps={len(steps)}")
     return matrix, inhomogenious_regions, steps
@@ -333,7 +333,7 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
         remaining_missing = np.isnan(imputed_matrix).sum()
         success_rate = (original_missing - remaining_missing) / max(1, original_missing) * 100
         
-        logger.info(f"Imputation completed: {original_missing} → {remaining_missing} missing values "
+        logger.debug(f"Imputation completed: {original_missing} → {remaining_missing} missing values "
                    f"({success_rate:.1f}% success rate)")
         
         return imputed_matrix
@@ -431,7 +431,7 @@ def binarize_matrix(matrix: np.ndarray, certitude: float = 0.3, default: int = 0
     n_uncertain = (result == default).sum()
     n_total = result.size
     
-    logger.info(f"Binarization completed: {n_zeros} zeros ({n_zeros/n_total*100:.1f}%), "
+    logger.debug(f"Binarization completed: {n_zeros} zeros ({n_zeros/n_total*100:.1f}%), "
                f"{n_ones} ones ({n_ones/n_total*100:.1f}%), "
                f"{n_uncertain} uncertain ({n_uncertain/n_total*100:.1f}%)")
     

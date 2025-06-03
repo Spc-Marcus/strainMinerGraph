@@ -7,6 +7,10 @@ from ..decorateur.perf import print_decorator
 
 logger = logging.getLogger(__name__)
 
+# Supprimer les logs Gurobi excessifs
+gurobi_logger = logging.getLogger('gurobipy')
+gurobi_logger.setLevel(logging.WARNING)
+
 options = {
 	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
 	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
@@ -122,9 +126,9 @@ def clustering_full_matrix(
                         remain_cols = [c for c in remain_cols if c not in cols]
     
     # Log clustering results for debugging
-    logger.info(f"Number of clustering steps: {len(steps_result)}")
+    logger.debug(f"Number of clustering steps: {len(steps_result)}")
     for i, step in enumerate(steps_result):
-        logger.info(f"Step {i}: Group1={len(step[0])}, Group0={len(step[1])}, Cols={len(step[2])}")
+        logger.debug(f"Step {i}: Group1={len(step[0])}, Group0={len(step[1])}, Cols={len(step[2])}")
     
     # Filter and return only valid steps with non-empty groups and sufficient columns
     return [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
@@ -246,7 +250,7 @@ def clustering_step(input_matrix: np.ndarray,
         clustering_1 = not clustering_1
         
     # Log final clustering statistics
-    logger.info(f"Final clustering results: rw1={len(rw1)}, rw0={len(rw0)}, current_cols={len(current_cols)}")
+    logger.debug(f"Final clustering results: rw1={len(rw1)}, rw0={len(rw0)}, current_cols={len(current_cols)}")
     return rw1, rw0, current_cols
 
 @print_decorator('clustering')
@@ -383,9 +387,12 @@ def find_quasi_biclique(
 
     # Initialize Gurobi optimization environment
     try:
-        env = grb.Env(params=options)      
+        env = grb.Env(params=options)
+        env.setParam('OutputFlag', 0)  # Disable all output
+        env.setParam('LogToConsole', 0)  # Disable console logging
         model = grb.Model('max_model', env=env)          
         model.Params.OutputFlag = 0  # Suppress output
+        model.Params.LogToConsole = 0  # Disable console logging
         model.Params.MIPGAP = 0.05   # 5% optimality gap tolerance
         model.Params.TimeLimit = 20  # 20 second time limit
     except Exception as e:

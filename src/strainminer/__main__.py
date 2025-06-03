@@ -51,6 +51,11 @@ def setup_logging(log_dir: str, verbose: bool = False) -> logging.Logger:
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
+    # Supprimer les logs Gurobi excessifs
+    gurobi_logger = logging.getLogger('gurobipy')
+    gurobi_logger.setLevel(logging.ERROR)
+    gurobi_logger.propagate = False
+    
     # File handler - always detailed
     file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)

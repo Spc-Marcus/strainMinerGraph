@@ -39,36 +39,17 @@ def create_matrix_decorator(func: Callable) -> Callable:
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         mode = get_print_mode()
-        print(f"DEBUG: create_matrix_decorator called with mode: {mode}")
         
         # Exécuter la fonction
         result = func(*args, **kwargs)
         
-        print(f"DEBUG: result type: {type(result)}")
-        if hasattr(result, '__len__'):
-            print(f"DEBUG: result length: {len(result)}")
-            if len(result) >= 1:
-                print(f"DEBUG: result[0] type: {type(result[0])}")
-                print(f"DEBUG: result[0] has shape: {hasattr(result[0], 'shape')}")
-                if hasattr(result[0], 'shape'):
-                    print(f"DEBUG: result[0] shape: {result[0].shape}")
-        
         # Appeler debug_matrix_start si mode start ou all
         if mode in ['start', 'all']:
-            print(f"DEBUG: Mode {mode} detected, checking result...")
             # Vérifier que result est un tuple/liste avec au moins un élément qui est une matrice
             if hasattr(result, '__len__') and len(result) >= 1:
                 matrix = result[0]
-                print(f"DEBUG: matrix type: {type(matrix)}, shape check: {hasattr(matrix, 'shape')}")
                 if hasattr(matrix, 'shape'):
-                    print(f"DEBUG: Calling debug_matrix_start with matrix shape: {matrix.shape}")
                     debug_matrix_start(matrix)
-                else:
-                    print("DEBUG: matrix doesn't have shape attribute")
-            else:
-                print("DEBUG: result doesn't have __len__ or is empty")
-        else:
-            print(f"DEBUG: Mode {mode} not in ['start', 'all']")
         
         return result
     return wrapper

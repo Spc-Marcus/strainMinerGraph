@@ -182,7 +182,7 @@ def get_data(input_file: ps.AlignmentFile,
                         suspicious_positions[pileupcolumn.reference_pos] = tmp_dict        
 
         
-        logger.info(f"Processed {positions_processed} positions, "
+        logger.debug(f"Processed {positions_processed} positions, "
                    f"found variants at {positions_with_variants} positions")
                    
     except Exception as e:

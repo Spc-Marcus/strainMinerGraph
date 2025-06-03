@@ -54,13 +54,7 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
     try:
         if hasattr(steps, '__iter__') and not isinstance(steps, (list, tuple)):
             steps = list(steps)
-            logger.debug(f"Converted steps generator to list with {len(steps)} steps")
-        
-        # DEBUGGING: Ajoutons des vérifications détaillées
-        logger.debug(f"Input validation - matrix.shape: {matrix.shape}")
-        logger.debug(f"Input validation - read_names type: {type(read_names)}, length: {len(read_names)}")
-        logger.debug(f"Input validation - steps type: {type(steps)}, length: {len(steps)}")
-        
+            
         # Input validation
         if len(read_names) != matrix.shape[0]:
             raise ValueError(f"Matrix rows ({matrix.shape[0]}) don't match read_names length ({len(read_names)})")
@@ -69,19 +63,12 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
             logger.warning("Empty matrix or read names, returning empty clusters")
             return []
         
-        logger.debug(f"Post-processing {len(steps)} clustering steps for {len(read_names)} reads")
-        
         # Begin with all reads in the same group
         clusters = [list(range(len(read_names)))]
-        logger.debug(f"Initial clusters: {len(clusters)} cluster(s)")
         
         # Go through each step and separate reads based on clustering decisions
         for step_idx, step in enumerate(steps):
-            logger.debug(f"Processing step {step_idx}")
             reads1, reads0, cols = step
-            
-            # DEBUGGING: Vérifier les types
-            logger.debug(f"Step {step_idx} - reads1 type: {type(reads1)}, reads0 type: {type(reads0)}")
             
             # CORRECTION: Convertir en listes si ce sont des générateurs
             if hasattr(reads1, '__iter__') and not isinstance(reads1, (list, tuple, np.ndarray)):
@@ -90,15 +77,12 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                 reads0 = list(reads0)
             
             if len(reads1) == 0 or len(reads0) == 0:
-                logger.debug(f"Skipping step {step_idx}: empty cluster")
                 continue
                 
             new_clusters = []
             
             # For each existing cluster, split it based on current step
             for cluster_idx, cluster in enumerate(clusters):
-                logger.debug(f"Processing cluster {cluster_idx} with {len(cluster)} reads")
-                
                 clust1 = [c for c in cluster if c in reads1]
                 clust0 = [c for c in cluster if c in reads0]
                 
@@ -109,9 +93,6 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                     new_clusters.append(clust0)
             
             clusters = new_clusters
-            logger.debug(f"Step {step_idx}: split into {len(clusters)} clusters")
-        
-        logger.debug("Starting cluster filtering...")
         
         # Remove small clusters and collect orphaned reads
         min_cluster_size = 5
@@ -119,14 +100,13 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
         large_clusters = []
         
         for cluster_idx, cluster in enumerate(clusters):
-            logger.debug(f"Cluster {cluster_idx}: {len(cluster)} reads")
             if len(cluster) <= min_cluster_size:
                 orphaned_reads.extend(cluster)
             else:
                 large_clusters.append(cluster)
         
         clusters = large_clusters
-        logger.info(f"Kept {len(clusters)} large clusters, {len(orphaned_reads)} orphaned reads")
+        logger.debug(f"Kept {len(clusters)} large clusters, {len(orphaned_reads)} orphaned reads")
         
         if len(clusters) == 0:
             logger.warning("No large clusters found after filtering")
@@ -254,7 +234,4 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
         
     except Exception as e:
         logger.error(f"Post-processing failed: {e}")
-        # DEBUGGING: Ajouter la stack trace
-        import traceback
-        logger.debug(f"Stack trace: {traceback.format_exc()}")
         raise RuntimeError(f"Could not complete post-processing: {e}") from e
