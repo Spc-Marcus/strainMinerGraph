@@ -106,12 +106,6 @@ class StrainMinerPipeline:
                     if X_matrix.size > 0 and len(reads) > 0:
                         matrix, regions, steps = pre_processing(X_matrix, self.min_col_quality)
                         
-                        # Appeler debug_matrix_start après l'imputation des NaN
-                        from ..decorateur.perf import get_print_mode, debug_matrix_start
-                        mode = get_print_mode()
-                        if mode in ['start', 'all']:
-                            debug_matrix_start(matrix)
-                        
                         steps = clustering_full_matrix(
                             matrix, regions, steps, 
                             self.min_row_quality, self.min_col_quality, error_rate
@@ -170,7 +164,8 @@ class StrainMinerPipeline:
 
 def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str, 
                            output_dir: str, error_rate: float = 0.025, 
-                           window_size: int = 5000, print_mode: Optional[str] = None, **kwargs) -> str:
+                           window_size: int = 5000, display_mode: Optional[str] = None, 
+                           print_mode: Optional[str] = None, **kwargs) -> str:
     """
     Main entry point function for StrainMiner pipeline execution.
     
@@ -188,8 +183,10 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
         Expected sequencing error rate
     window_size : int
         Window size for analysis
+    display_mode : Optional[str]
+        Display mode ('start', 'end', 'step', 'all')
     print_mode : Optional[str]
-        Debug print mode ('start', 'end', 'step', 'all')
+        Deprecated: Use display_mode instead
     **kwargs
         Additional pipeline parameters
         
@@ -206,12 +203,15 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
     try:
         logger.info("Starting StrainMiner pipeline execution")
         
-        # Configure print mode if specified
-        if print_mode:
-            from ..decorateur.perf import set_print_mode
-            set_print_mode(print_mode)
-            logger.info(f"Debug print mode configured: {print_mode}")
+        # Handle backward compatibility for print_mode parameter
+        mode_to_set = display_mode or print_mode
         
+        # Configure display mode if specified
+        if mode_to_set:
+            from ..decorateur.perf import set_display_mode
+            set_display_mode(mode_to_set)
+            logger.info(f"Display mode configured: {mode_to_set}")
+
         # Setup directories
         dir_paths = setup_output_directories(output_dir)
         tmp_dir = dir_paths['tmp_dir']

@@ -20,22 +20,39 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Variable globale pour stocker le mode d'impression
-_print_mode: Optional[str] = None
+# Variable globale pour stocker le mode d'affichage
+_display_mode: Optional[str] = None
 
+def set_display_mode(mode: str) -> None:
+    """Configure le mode d'affichage global."""
+    global _display_mode
+    _display_mode = mode
+    logger.debug(f"Display mode set to: {mode}")
+
+def get_display_mode() -> Optional[str]:
+    """Récupère le mode d'affichage actuel."""
+    return _display_mode
+
+# Backward compatibility for old print_mode interface
 def set_print_mode(mode: str) -> None:
-    """Configure le mode d'impression global."""
-    global _print_mode
-    _print_mode = mode
-    logger.debug(f"Print mode set to: {mode}")
+    """Backward compatibility function for set_print_mode.
+    
+    Deprecated: Use set_display_mode instead.
+    """
+    logger.warning("set_print_mode is deprecated, use set_display_mode instead")
+    set_display_mode(mode)
 
 def get_print_mode() -> Optional[str]:
-    """Récupère le mode d'impression actuel."""
-    return _print_mode
+    """Backward compatibility function for get_print_mode.
+    
+    Deprecated: Use get_display_mode instead.
+    """
+    logger.warning("get_print_mode is deprecated, use get_display_mode instead")
+    return get_display_mode()
 
-def debug_matrix_start(matrix: np.ndarray) -> None:
-    """Fonction appelée au début avec seulement la matrice.
-    Affiche la forme de la matrice et sa distribution."""
+def display_matrix_start(matrix: np.ndarray) -> None:
+    """Fonction pour afficher la matrice avec tri bitarray.
+    Doit être appelée manuellement."""
     
     # Statistiques de la matrice
     total_elements = matrix.size
@@ -96,23 +113,23 @@ def debug_matrix_start(matrix: np.ndarray) -> None:
     else:
         logger.info(f"Matrix too large ({matrix.size} elements) for visualization - skipping plot")
 
-def debug_preprocessing(matrix: np.ndarray, steps: Any) -> None:
-    """Fonction appelée pour le preprocessing avec matrice et steps."""
-    logger.info(f"Debugging Preprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
+def display_preprocessing(matrix: np.ndarray, steps: Any) -> None:
+    """Fonction pour afficher les informations de preprocessing."""
+    logger.info(f"Displaying Preprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
 
-def debug_postprocessing(matrix: np.ndarray, steps: Any) -> None:
-    """Fonction appelée pour le postprocessing avec matrice et steps."""
-    logger.info(f"Debugging Postprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
+def display_postprocessing(matrix: np.ndarray, steps: Any) -> None:
+    """Fonction pour afficher les informations de postprocessing."""
+    logger.info(f"Displaying Postprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
 
-def debug_find_quasi_biclique(result_tuple: tuple) -> None:
-    """Fonction appelée avec le tuple de retour de find_quasi_biclique."""
-    logger.info(f"Debugging Find Quasi Biclique - Result: {result_tuple}")
+def display_find_quasi_biclique(result_tuple: tuple) -> None:
+    """Fonction pour afficher les résultats de find_quasi_biclique."""
+    logger.info(f"Displaying Find Quasi Biclique - Result: {result_tuple}")
 
 def create_matrix_decorator(func: Callable) -> Callable:
-    """Décorateur spécialisé pour create_matrix - désactivé car appelé manuellement."""
+    """Décorateur spécialisé pour create_matrix - passif."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Ne plus appeler automatiquement debug_matrix_start
+        # Exécuter la fonction sans affichage automatique
         result = func(*args, **kwargs)
         return result
     return wrapper
@@ -121,16 +138,25 @@ def preprocessing_decorator(func: Callable) -> Callable:
     """Décorateur spécialisé pour pre_processing."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        mode = get_print_mode()
+        mode = get_display_mode()
         
         # Exécuter la fonction
         result = func(*args, **kwargs)
         
-        # Appeler debug_preprocessing si mode all
+        # Appeler display_matrix_start si mode start ou all (après imputation)
+        if mode in ['start', 'all']:
+            # result contient (matrix, regions, steps) - matrix est après imputation
+            if hasattr(result, '__len__') and len(result) >= 1:
+                matrix = result[0] if hasattr(result[0], 'shape') else None
+                if matrix is not None and matrix.size > 0:
+                    logger.info("Calling display_matrix_start from preprocessing_decorator (after imputation)")
+                    display_matrix_start(matrix)
+        
+        # Appeler display_preprocessing si mode all
         if mode == 'all':
             matrix = args[0] if args and hasattr(args[0], 'shape') else None
             if matrix is not None and hasattr(result, '__len__') and len(result) >= 2:
-                debug_preprocessing(matrix, result[1])  # steps
+                display_preprocessing(matrix, result[1])  # steps
         
         return result
     return wrapper
@@ -139,17 +165,17 @@ def postprocessing_decorator(func: Callable) -> Callable:
     """Décorateur spécialisé pour post_processing."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        mode = get_print_mode()
+        mode = get_display_mode()
         
         # Exécuter la fonction
         result = func(*args, **kwargs)
         
-        # Appeler debug_postprocessing si mode end ou all
+        # Appeler display_postprocessing si mode end ou all
         if mode in ['end', 'all']:
             matrix = args[0] if args and hasattr(args[0], 'shape') else None
             steps = args[1] if len(args) >= 2 else None
             if matrix is not None and steps is not None:
-                debug_postprocessing(matrix, steps)
+                display_postprocessing(matrix, steps)
         
         return result
     return wrapper
@@ -158,14 +184,14 @@ def find_quasi_biclique_decorator(func: Callable) -> Callable:
     """Décorateur spécialisé pour find_quasi_biclique."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        mode = get_print_mode()
+        mode = get_display_mode()
         
         # Exécuter la fonction
         result = func(*args, **kwargs)
         
-        # Appeler debug_find_quasi_biclique si mode all
+        # Appeler display_find_quasi_biclique si mode all
         if mode == 'all':
-            debug_find_quasi_biclique(result)
+            display_find_quasi_biclique(result)
         
         return result
     return wrapper
@@ -187,26 +213,30 @@ def clustering_decorator(func: Callable) -> Callable:
     return wrapper
 
 # Décorateur principal qui dispatche vers les décorateurs spécialisés
-def print_decorator(debug_type: str):
+def print_decorator(display_type: str):
     """
     Décorateur principal qui dispatche vers les décorateurs spécialisés.
     
     Parameters
     ----------
-    debug_type : str
-        Type de debug: 'matrix', 'preprocessing', 'clustering', 'postprocessing'
+    display_type : str
+        Type d'affichage: 'matrix', 'preprocessing', 'clustering', 'postprocessing'
     """
     def decorator(func: Callable) -> Callable:
+        logger.debug(f"Applying decorator for function '{func.__name__}' with type '{display_type}'")
         # Dispatcher vers le bon décorateur selon le nom de la fonction
-        if func.__name__ == 'pre_processing':
+        if func.__name__ == 'create_matrix':
+            logger.debug("Applying create_matrix_decorator")
+            return create_matrix_decorator(func)
+        elif func.__name__ == 'pre_processing':
             return preprocessing_decorator(func)
         elif func.__name__ == 'post_processing':
             return postprocessing_decorator(func)
         elif func.__name__ == 'find_quasi_biclique':
             return find_quasi_biclique_decorator(func)
-        elif debug_type == 'matrix':
+        elif display_type == 'matrix':
             return matrix_decorator(func)
-        elif debug_type == 'clustering':
+        elif display_type == 'clustering':
             return clustering_decorator(func)
         else:
             # Pas de décorateur spécialisé, retourner la fonction inchangée

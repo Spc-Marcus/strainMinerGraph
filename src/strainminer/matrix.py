@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 
+@print_decorator('matrix')
 def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> tuple:
     """
     Preprocess a dictionary of suspicious positions to create a filtered matrix.
