@@ -1,28 +1,26 @@
 from setuptools import setup, Extension, find_packages
+import numpy
 
-# Fonction pour obtenir les chemins d'inclusion numpy de façon sécurisée
-def get_numpy_include():
-    try:
-        import numpy
-        return numpy.get_include()
-    except ImportError:
-        return None
-
-# Module d'extension avec les en-têtes numpy
-module = Extension('bitarray_heapsort',
-                  sources = ['src/utils/bitarray_heapsort.c'],
-                  include_dirs=[get_numpy_include()] if get_numpy_include() else [])
+# Module d'extension avec OpenMP support
+bitarray_module = Extension(
+    'bitarray_heapsort',
+    sources=['src/utils/bitarray_heapsort.c'],
+    include_dirs=[numpy.get_include()],
+    extra_compile_args=['-fopenmp', '-O3', '-ffast-math'],
+    extra_link_args=['-fopenmp'],
+)
 
 # Configuration de base
 setup(
-    name = 'strainminer',
-    version = '2.0.0',
-    description = 'Outil pour l\'analyse des souches microbiennes',
+    name='strainminer',
+    version='2.0.0',
+    description='Outil pour l\'analyse des souches microbiennes',
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    ext_modules = [module],
+    ext_modules=[bitarray_module],
     install_requires=[
         'numpy',
+        'matplotlib',
     ],
     setup_requires=[
         'numpy',
@@ -38,4 +36,5 @@ setup(
             'strainminer=strainminer.__main__:main',
         ],
     },
+    zip_safe=False,
 )

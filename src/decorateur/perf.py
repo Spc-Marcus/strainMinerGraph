@@ -4,6 +4,20 @@ from typing import Callable, Any, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Import the C bitarray sorting module
+BITARRAY_AVAILABLE = False
+bitarray_heapsort = None
+
+try:
+    import bitarray_heapsort
+    BITARRAY_AVAILABLE = True
+except ImportError:
+    try:
+        from ..utils import bitarray_heapsort
+        BITARRAY_AVAILABLE = True
+    except ImportError:
+        pass
+
 logger = logging.getLogger(__name__)
 
 # Variable globale pour stocker le mode d'impression
@@ -28,25 +42,36 @@ def debug_matrix_start(matrix: np.ndarray) -> None:
     ones = np.sum(matrix == 1)
     zeros = np.sum(matrix == 0)
     
-    print(f"  Matrix density: {ones/total_elements*100:.2f}% ones, {zeros/total_elements*100:.2f}% zeros")
+    logger.info(f"Matrix density: {ones/total_elements*100:.2f}% ones, {zeros/total_elements*100:.2f}% zeros")
     
     # Visualisation seulement si la matrice n'est pas trop grande
     if matrix.size <= 10000:  # Limite pour éviter les graphiques trop lourds
         try:
             plt.figure(figsize=(15, 8))
+            logger.debug(f"Matrix properties: dtype={matrix.dtype}, shape={matrix.shape}, C_CONTIGUOUS={matrix.flags['C_CONTIGUOUS']}")
             
-            # Trier la matrice pour la visualisation
-            # Trier les lignes par nombre de 1s (densité décroissante)
-            row_sums = np.sum(matrix, axis=1)
-            row_order = np.argsort(row_sums)[::-1]  # ordre décroissant
-            
-            # Trier les colonnes par nombre de 1s (densité décroissante)
-            col_sums = np.sum(matrix, axis=0)
-            col_order = np.argsort(col_sums)[::-1]  # ordre décroissant
-            
-            # Appliquer le tri
-            sorted_matrix = matrix[np.ix_(row_order, col_order)]
-            
+            # Utiliser uniquement le tri bitarray
+            if BITARRAY_AVAILABLE and bitarray_heapsort is not None:
+                logger.debug("Using bitarray element-by-element sorting (1 > 0)")
+                # Convertir en uint8 et s'assurer que c'est C-contiguous
+                if matrix.dtype != np.uint8:
+                    matrix_uint8 = matrix.astype(np.uint8)
+                else:
+                    matrix_uint8 = matrix
+                
+                # S'assurer que la matrice est C-contiguous
+                if not matrix_uint8.flags['C_CONTIGUOUS']:
+                    matrix_uint8 = np.ascontiguousarray(matrix_uint8)
+                
+                logger.debug(f"Converted matrix properties: dtype={matrix_uint8.dtype}, C_CONTIGUOUS={matrix_uint8.flags['C_CONTIGUOUS']}")
+                
+                sorted_matrix = bitarray_heapsort.sort_numpy(matrix_uint8)
+                logger.debug("Matrix sorted using bitarray_heapsort C module with element-by-element comparison")
+            else:
+                # Message de debug et pas de tri
+                logger.warning("bitarray_heapsort module not available - showing unsorted matrix")
+                sorted_matrix = matrix
+                
             plt.imshow(sorted_matrix, cmap='gray_r', interpolation='nearest', 
                       vmin=0, vmax=1, aspect='auto', extent=[0, matrix.shape[1], 0, matrix.shape[0]])
             
@@ -65,23 +90,23 @@ def debug_matrix_start(matrix: np.ndarray) -> None:
             plt.tight_layout()
             plt.show()
         except ImportError:
-            print("matplotlib not available for visualization")
+            logger.warning("matplotlib not available for visualization")
         except Exception as e:
-            print(f"Could not create visualization: {e}")
+            logger.error(f"Could not create visualization: {e}")
     else:
-        print(f"Matrix too large ({matrix.size} elements) for visualization - skipping plot")
+        logger.info(f"Matrix too large ({matrix.size} elements) for visualization - skipping plot")
 
 def debug_preprocessing(matrix: np.ndarray, steps: Any) -> None:
     """Fonction appelée pour le preprocessing avec matrice et steps."""
-    print(f"###################################################### Debugging Preprocessing - Matrix Shape: {matrix.shape}, Steps: {steps} ######################################################")
+    logger.info(f"Debugging Preprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
 
 def debug_postprocessing(matrix: np.ndarray, steps: Any) -> None:
     """Fonction appelée pour le postprocessing avec matrice et steps."""
-    print(f"###################################################### Debugging Postprocessing - Matrix Shape: {matrix.shape}, Steps: {steps} ######################################################")
+    logger.info(f"Debugging Postprocessing - Matrix Shape: {matrix.shape}, Steps: {steps}")
 
 def debug_find_quasi_biclique(result_tuple: tuple) -> None:
     """Fonction appelée avec le tuple de retour de find_quasi_biclique."""
-    print(f"###################################################### Debugging Find Quasi Biclique - Result: {result_tuple} ######################################################")
+    logger.info(f"Debugging Find Quasi Biclique - Result: {result_tuple}")
 
 def create_matrix_decorator(func: Callable) -> Callable:
     """Décorateur spécialisé pour create_matrix - désactivé car appelé manuellement."""
