@@ -664,6 +664,9 @@ def main() -> int:
     >>> # python -m strainminer [arguments]
     >>> exit_code = main()
     """
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+    
     try:
         # Parse command line arguments
         args = parse_arguments()
