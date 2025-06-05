@@ -1,9 +1,12 @@
 import os
+import time
 import logging
 from pathlib import Path
 from typing import Dict, Tuple, List
 import numpy as np
 import pysam as ps
+
+from .stats import timed_matrix_operation
 
 # Package version information
 __version__ = "2.0.0"
@@ -12,6 +15,7 @@ __version__ = "2.0.0"
 logger = logging.getLogger(__name__)
 
 
+@timed_matrix_operation('data_extraction')
 def get_data(input_file: ps.AlignmentFile, 
              contig_name: str, 
              start_pos: int, 
@@ -138,6 +142,8 @@ def get_data(input_file: ps.AlignmentFile,
     # Initialize results dictionary
     suspicious_positions = {}
     
+    start_time = time.time()
+    
     try:
         # Generate pileup over specified region with quality filters
         pileup_iter = input_file.pileup(
@@ -188,6 +194,21 @@ def get_data(input_file: ps.AlignmentFile,
     except Exception as e:
         logger.error(f"Error during pileup processing for {contig_name}:{start_pos}-{end_pos}: {e}")
         raise RuntimeError(f"Pileup processing failed: {e}") from e
+    
+    extraction_time = time.time() - start_time
+    
+    # Enregistrer les statistiques d'extraction
+    from .stats import get_stats
+    stats = get_stats()
+    if stats and stats.enabled:
+        stats.record_matrix_processing(
+            matrix_shape=(len(suspicious_positions), end_pos - start_pos),
+            processing_time=extraction_time,
+            stage='data_extraction',
+            contig_name=contig_name,
+            genomic_region=f"{start_pos}-{end_pos}",
+            positions_with_variants=len(suspicious_positions)
+        )
     
     return suspicious_positions
 

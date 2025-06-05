@@ -308,6 +308,7 @@ def init(assembly_file: str,
          debug_level: int = 2,
          keep_temp: bool = False,
          enable_file_logging: bool = False,
+         enable_stats: bool = False,
          print_mode: Optional[str] = None) -> int:
     """
     Initialize and execute the StrainMiner pipeline.
@@ -443,6 +444,12 @@ def init(assembly_file: str,
         env_paths = setup_environment(output_folder, debug_level, enable_file_logging)
         logger = logging.getLogger(__name__)  # Get logger after setup
         
+        # Initialiser les statistiques de performance
+        if enable_stats:
+            from .stats import initialize_stats
+            initialize_stats(output_folder, enabled=True)
+            logger.info("Performance statistics collection enabled")
+        
         # Configure print mode if specified
         if print_mode:
             try:
@@ -493,6 +500,14 @@ def init(assembly_file: str,
             print_mode=print_mode
         )
         
+        # Sauvegarder les statistiques à la fin
+        if enable_stats:
+            from .stats import get_stats
+            stats = get_stats()
+            if stats:
+                stats.save_all_stats()
+                logger.info("Performance statistics saved")
+        
         # Calculate runtime
         runtime = datetime.now() - start_time
         logger.info(f"Pipeline completed successfully in {runtime}")
@@ -506,7 +521,24 @@ def init(assembly_file: str,
         return 0
         
     except Exception as e:
-        runtime = datetime.now() - start_time
+        # Sauvegarder les statistiques même en cas d'erreur
+        if enable_stats:
+            try:
+                from .stats import get_stats
+                stats = get_stats()
+                if stats:
+                    stats.save_all_stats()
+            except:
+                pass
+        # Sauvegarder les statistiques même en cas d'erreur
+        if enable_stats:
+            try:
+                from .stats import get_stats
+                stats = get_stats()
+                if stats:
+                    stats.save_all_stats()
+            except:
+                pass
         # Only show error details at debug level 3
         if debug_level >= 3:
             print(f"FATAL ERROR after {runtime}: {e}")
@@ -667,6 +699,12 @@ def parse_arguments() -> argparse.Namespace:
              'end (postprocessing results), all (comprehensive debugging)'
     )
     output_opts.add_argument(
+        '--stats', 
+        action='store_true',
+        help='Enable performance statistics collection. Saves detailed timing '
+             'and performance metrics to CSV files in output/stats/ directory.'
+    )
+    output_opts.add_argument(
         '--version', 
         action='version', 
         version=f'StrainMiner {__version__}'
@@ -732,7 +770,8 @@ def main() -> int:
             min_base_quality=args.min_base_quality,
             debug_level=args.debug,
             keep_temp=args.keep_temp,
-            enable_file_logging=args.log,  # Pass the --log flag
+            enable_file_logging=args.log,
+            enable_stats=args.stats,  # Passer le flag --stats
             print_mode=getattr(args, 'print', None)
         )
         

@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+import time
 from sklearn.cluster import FeatureAgglomeration
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.impute import KNNImputer
 import logging
+from .stats import timed_matrix_operation
 
 # Fix import path - decorateur is at src level, not within strainminer package
 try:
@@ -119,6 +121,7 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
     return matrix, reads
 
 @print_decorator('preprocessing')
+@timed_matrix_operation('preprocessing')
 def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :int =0,certitude:float = 0.3)-> tuple:
     """
     Pre-processes the input matrix by imputing missing values, binarizing data, and identifying inhomogeneous regions.
@@ -159,6 +162,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     - Other modes: No visualization
     """
     
+    start_time = time.time()
     m,n = input_matrix.shape
     if m > 0 and n > 0:
         if certitude <0 or certitude>=0.5:
@@ -173,6 +177,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     regions = [list(range(matrix.shape[1]))]
     inhomogenious_regions = [list(range(matrix.shape[1]))]
     steps = []
+    homogeneous_regions = []
 
     if m>5 and n > 15:
         # Initial clustering of columns using FeatureAgglomeration
@@ -225,6 +230,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
                 inhomogenious_regions.append(region)
             else:
                 # Cut into 2 regions of 1 and 0 for homogeneous regions
+                homogeneous_regions.append(region)
                 agglo = AgglomerativeClustering(n_clusters=2, metric='hamming', linkage='complete')
                 agglo.fit(matrix_reg)  
                 labels = agglo.labels_  
@@ -243,7 +249,8 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
                 # Only keep well-separated clusters (>90% or <10%)
                 if (mat_cl0 > 0.9 or mat_cl0 < 0.1) and (mat_cl1 > 0.9 or mat_cl1 < 0.1):
                     steps.append((cluster1, cluster0, region))
-    # Log matrix statistics for debugging
+    
+    # Log matrix statistics for debugging (GARDER CES LOGS)
     input_ones = (input_matrix == 1).sum()
     input_zeros = (input_matrix == 0).sum()
     input_nans = np.isnan(input_matrix).sum()
@@ -253,7 +260,7 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     output_zeros = (matrix == 0).sum()
     output_total = matrix.size
     
-    # Log debug info instead of saving to file
+    # Log debug info instead of saving to file (GARDER CES LOGS)
     logger.debug(f"Matrix Processing Debug Info:")
     logger.debug(f"INPUT MATRIX {input_matrix.shape}: "
                f"Total={input_total}, "
@@ -269,9 +276,74 @@ def pre_processing(input_matrix:np.ndarray ,min_col_quality :int = 3, default :i
     logger.debug(f"REGIONS: Total={len(regions)}, "
                f"Inhomogeneous={len(inhomogenious_regions)}, "
                f"Steps={len(steps)}")
+    
+    processing_time = time.time() - start_time
+    
+    # AJOUTER les statistiques détaillées EN PLUS des logs existants
+    from .stats import get_stats
+    stats = get_stats()
+    if stats and stats.enabled:
+        # Calculer des métriques détaillées
+        total_regions = len(regions)
+        homogeneous_count = len(homogeneous_regions)
+        inhomogeneous_count = len(inhomogenious_regions)
+        preprocessing_steps_count = len(steps)
+        
+        # Calculer les tailles moyennes des régions
+        avg_region_size = sum(len(r) for r in regions) / max(1, len(regions))
+        avg_homog_size = sum(len(r) for r in homogeneous_regions) / max(1, len(homogeneous_regions))
+        avg_inhomog_size = sum(len(r) for r in inhomogenious_regions) / max(1, len(inhomogenious_regions))
+        
+        # Calculer le taux de compression
+        compression_ratio = matrix.size / max(1, input_matrix.size)
+        
+        stats.record_benchmark_data(
+            stage='preprocessing_detailed',
+            matrix_shape=matrix.shape,
+            execution_time=processing_time,
+            # Données d'entrée
+            input_rows=input_matrix.shape[0],
+            input_cols=input_matrix.shape[1],
+            input_size=input_matrix.size,
+            input_ones=int(input_ones),
+            input_zeros=int(input_zeros),
+            input_nans=int(input_nans),
+            # Données de sortie
+            output_rows=matrix.shape[0],
+            output_cols=matrix.shape[1],
+            output_size=matrix.size,
+            output_ones=int(output_ones),
+            output_zeros=int(output_zeros),
+            compression_ratio=compression_ratio,
+            # Régions
+            total_regions=total_regions,
+            homogeneous_regions=homogeneous_count,
+            inhomogeneous_regions=inhomogeneous_count,
+            avg_region_size=avg_region_size,
+            avg_homogeneous_size=avg_homog_size,
+            avg_inhomogeneous_size=avg_inhomog_size,
+            # Étapes de préprocessing
+            preprocessing_steps=preprocessing_steps_count,
+            # Paramètres
+            min_col_quality=min_col_quality,
+            certitude=certitude,
+            default_value=default
+        )
+        
+        # Aussi l'ancienne méthode pour compatibilité
+        stats.record_preprocessing(
+            input_shape=input_matrix.shape,
+            output_shape=matrix.shape,
+            execution_time=processing_time,
+            regions_found=len(regions),
+            inhomogeneous_regions=len(inhomogenious_regions),
+            preprocessing_steps=len(steps)
+        )
+    
     return matrix, inhomogenious_regions, steps
 
 @print_decorator('matrix')
+@timed_matrix_operation('imputation')
 def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarray:
     """
     Impute missing values in a genomic variant matrix using K-Nearest Neighbors.
@@ -368,6 +440,7 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
 
 
 @print_decorator('matrix')
+@timed_matrix_operation('binarization')
 def binarize_matrix(matrix: np.ndarray, certitude: float = 0.3, default: int = 0) -> np.ndarray:
     """
     Binarize a continuous variant matrix using certainty-based thresholds.

@@ -1,7 +1,9 @@
 import numpy as np
 import logging
+import time
 from typing import List, Tuple
 from sklearn.cluster import AgglomerativeClustering
+from .stats import timed_matrix_operation
 
 # Fix import path - decorateur is at src level, not within strainminer package
 try:
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @print_decorator('postprocessing')
+@timed_matrix_operation('postprocessing')
 def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], List[int]]], 
                    read_names: List[str], distance_thresh: float = 0.1) -> List[np.ndarray]:
     """
@@ -60,6 +63,8 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
     --------
     clustering_full_matrix : Previous step in the pipeline
     """
+    start_time = time.time()
+    
     try:
         if hasattr(steps, '__iter__') and not isinstance(steps, (list, tuple)):
             steps = list(steps)
@@ -244,6 +249,49 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                     logger.debug(f"Final cluster {cluster_idx}: {len(cluster_names)} reads")
         
         logger.info(f"Post-processing completed: {len(result_clusters)} distinct strain clusters identified")
+        
+        # Enregistrer les statistiques de post-processing
+        processing_time = time.time() - start_time
+        from .stats import get_stats
+        stats = get_stats()
+        if stats and stats.enabled:
+            # Calculer les variables locales si elles n'existent pas
+            orphaned_count = len(orphaned_reads) if 'orphaned_reads' in locals() else 0
+            
+            stats.record_matrix_processing(
+                matrix_shape=matrix.shape,
+                processing_time=processing_time,
+                stage='postprocessing',
+                input_steps=len(steps),
+                output_clusters=len(result_clusters),
+                orphaned_reads=orphaned_count,
+                # Ajouter des champs optionnels avec des valeurs par défaut
+                contig_name='',
+                genomic_region='',
+                positions_with_variants=0,
+                contig_length=0,
+                windows_processed=0,
+                total_variants=0,
+                reads_processed=matrix.shape[0]
+            )
+            
+            # AJOUTER: Enregistrer AUSSI les statistiques de clustering pour le post-processing
+            stats.record_clustering_step(
+                matrix_shape=matrix.shape,
+                execution_time=processing_time,
+                iterations=1,  # Une seule itération de post-processing
+                patterns_found=len(result_clusters),
+                ilp_calls=0,   # Pas d'ILP dans le post-processing
+                positive_reads=sum(len(cluster) for cluster in result_clusters),
+                negative_reads=orphaned_count,
+                final_cols=matrix.shape[1],
+                region_id=-2,  # -2 pour indiquer le post-processing
+                initial_cols=matrix.shape[1],
+                error_rate=0.0,  # Pas applicable
+                min_row_quality=5,  # Valeur par défaut
+                min_col_quality=3   # Valeur par défaut
+            )
+        
         return result_clusters
         
     except Exception as e:

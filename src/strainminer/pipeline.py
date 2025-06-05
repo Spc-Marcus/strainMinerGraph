@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import traceback
+import time
 import numpy as np
 import pandas as pd
 import pysam as ps
@@ -14,6 +15,7 @@ from .cluster import clustering_full_matrix
 from .postprocess import post_processing
 from .assembly import setup_assembly_pipeline, run_create_new_contigs, run_graph_unzip, convert_gfa_to_fasta
 from .io_utils import write_reads_to_file, write_haplotype_groups, write_contig_header
+from .stats import timed_matrix_operation
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ class StrainMinerPipeline:
         self.filtered_col_threshold = 0.6
     
     
+    @timed_matrix_operation('contig_processing')
     def process_single_contig(self, file: ps.AlignmentFile, sol_file, contig: Dict[str, Any], 
                             window: int, tmp_dir: str, error_rate: float) -> Tuple[List[str], Dict[str, Tuple]]:
         """
@@ -79,9 +82,12 @@ class StrainMinerPipeline:
             
             logger.debug(f"Processing contig {contig_name} (length: {contig_length:,} bp)")
             
+            contig_start_time = time.time()
             list_of_reads = []
             index_of_reads = {}
             haplotypes = []
+            windows_processed = 0
+            total_variants = 0
             
             # Process contig in sliding windows
             for start_pos in range(0, contig_length, window):
@@ -91,6 +97,7 @@ class StrainMinerPipeline:
                 
                 # Extract variant data
                 dict_of_sus_pos = get_data(file, contig_name, start_pos, end_pos)
+                total_variants += len(dict_of_sus_pos)
                 
                 # Save intermediate data
                 output_file = Path(tmp_dir) / f"dict_of_sus_pos_{contig_name}_{start_pos}.json"
@@ -135,6 +142,7 @@ class StrainMinerPipeline:
                     logger.debug(f"No variants found in window {start_pos}-{end_pos}")
                 
                 haplotypes.append(haplotypes_here)
+                windows_processed += 1
             
             # Write contig header
             write_contig_header(sol_file, contig_name, contig_length)
@@ -154,6 +162,28 @@ class StrainMinerPipeline:
             # Write reads and haplotype groups
             write_reads_to_file(sol_file, list_of_reads, read_positions)
             write_haplotype_groups(sol_file, haplotypes, window, contig_length, list_of_reads)
+            
+            # Enregistrer les statistiques du contig
+            contig_processing_time = time.time() - contig_start_time
+            from .stats import get_stats
+            stats = get_stats()
+            if stats and stats.enabled:
+                stats.record_matrix_processing(
+                    matrix_shape=(len(list_of_reads), windows_processed),
+                    processing_time=contig_processing_time,
+                    stage='contig_processing',
+                    contig_name=contig_name,
+                    contig_length=contig_length,
+                    windows_processed=windows_processed,
+                    total_variants=total_variants,
+                    reads_processed=len(list_of_reads),
+                    # Ajouter des champs optionnels avec des valeurs par défaut
+                    genomic_region=f"0-{contig_length}",
+                    positions_with_variants=total_variants,
+                    input_steps=0,
+                    output_clusters=0,
+                    orphaned_reads=0
+                )
             
             logger.debug(f"Completed processing contig {contig_name}: {len(list_of_reads)} reads processed")
             return list_of_reads, read_positions

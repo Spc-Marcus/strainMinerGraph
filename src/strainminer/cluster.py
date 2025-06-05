@@ -4,8 +4,10 @@ import gurobipy as grb
 import logging
 import os
 import sys
+import time
 import contextlib
 from io import StringIO
+from .stats import get_stats, timed_matrix_operation, timed_ilp_call
 
 # Fix import path - decorateur is at src level, not within strainminer package
 try:
@@ -45,6 +47,7 @@ def suppress_gurobi_output():
         sys.stderr = old_stderr
 
 @print_decorator('clustering')
+@timed_matrix_operation('full_clustering')
 def clustering_full_matrix(
         input_matrix:np.ndarray, 
         regions :List[List[int]],
@@ -122,6 +125,9 @@ def clustering_full_matrix(
     """
     # Initialize result list with existing steps
     steps_result = steps.copy() if steps else []
+    total_clustering_steps = 0
+    total_ilp_calls = 0
+    start_time = time.time()
     
     # Process each region if any regions are provided
     if len(regions) > 0:
@@ -129,18 +135,26 @@ def clustering_full_matrix(
             # Initialize remaining columns for this region
             remain_cols = region
             status = True
+            region_start_time = time.time()
+            region_steps = 0
+            region_ilp_calls = 0
             
             # Only process regions that meet minimum quality threshold
             if len(remain_cols) >= min_col_quality:
-                logger.debug(f"Processing region {idx} with {len(remain_cols)} columns")
+                logger.debug(f"Processing region {idx} with {len(remain_cols)} columns")  # GARDER CE LOG
                 
                 # Iteratively extract patterns until no more significant ones found
                 while len(remain_cols) >= min_col_quality and status:
                     # Apply clustering to current remaining columns
-                    reads1, reads0, cols = clustering_step(input_matrix[:, remain_cols], 
-                                                          error_rate=error_rate,
-                                                          min_row_quality=min_row_quality, 
-                                                          min_col_quality=min_col_quality)
+                    sub_matrix = input_matrix[:, remain_cols]
+                    reads1, reads0, cols, ilp_calls = clustering_step_with_stats(
+                        sub_matrix, 
+                        error_rate=error_rate,
+                        min_row_quality=min_row_quality, 
+                        min_col_quality=min_col_quality
+                    )
+                    
+                    region_ilp_calls += ilp_calls
                     
                     # Convert local column indices back to global matrix coordinates
                     cols = [remain_cols[c] for c in cols]
@@ -151,102 +165,113 @@ def clustering_full_matrix(
                     else:
                         # Save valid clustering step
                         steps_result.append((reads1, reads0, cols))
-                        logger.debug(f"Found clustering step: {len(reads1)} vs {len(reads0)} reads, {len(cols)} columns")
+                        region_steps += 1
+                        logger.debug(f"Found clustering step: {len(reads1)} vs {len(reads0)} reads, {len(cols)} columns")  # GARDER CE LOG
                         # Remove processed columns from remaining set
                         remain_cols = [c for c in remain_cols if c not in cols]
             else:
-                logger.debug(f"Skipping region {idx}: insufficient columns ({len(remain_cols)} < {min_col_quality})")
+                logger.debug(f"Skipping region {idx}: insufficient columns ({len(remain_cols)} < {min_col_quality})")  # GARDER CE LOG
+            
+            # AJOUTER les statistiques EN PLUS des logs existants
+            region_time = time.time() - region_start_time
+            stats = get_stats()
+            if stats and stats.enabled:
+                # Enregistrer dans benchmark_stats
+                stats.record_benchmark_data(
+                    stage='region_clustering',
+                    matrix_shape=(input_matrix.shape[0], len(region)),
+                    execution_time=region_time,
+                    region_id=idx,
+                    initial_cols=len(region),
+                    patterns_found=region_steps,
+                    ilp_calls_total=region_ilp_calls,
+                    min_row_quality=min_row_quality,
+                    min_col_quality=min_col_quality,
+                    error_rate=error_rate
+                )
+                
+                # AJOUTER: Enregistrer AUSSI dans clustering_stats pour chaque région
+                stats.record_clustering_step(
+                    matrix_shape=(input_matrix.shape[0], len(region)),
+                    execution_time=region_time,
+                    iterations=region_steps,
+                    patterns_found=region_steps,
+                    ilp_calls=region_ilp_calls,
+                    positive_reads=0,  # Non applicable au niveau région
+                    negative_reads=0,  # Non applicable au niveau région
+                    final_cols=len(remain_cols),
+                    region_id=idx,
+                    initial_cols=len(region),
+                    error_rate=error_rate,
+                    min_row_quality=min_row_quality,
+                    min_col_quality=min_col_quality
+                )
+                
+            total_clustering_steps += region_steps
+            total_ilp_calls += region_ilp_calls
     
-    # Log clustering results for debugging
+    total_time = time.time() - start_time
+    
+    # AJOUTER les statistiques globales EN PLUS des logs existants
+    stats = get_stats()
+    if stats and stats.enabled:
+        valid_steps_count = len([step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0])
+        
+        # Enregistrer dans benchmark_stats
+        stats.record_benchmark_data(
+            stage='full_clustering_summary',
+            matrix_shape=input_matrix.shape,
+            execution_time=total_time,
+            total_regions=len(regions),
+            total_clustering_steps=total_clustering_steps,
+            total_ilp_calls=total_ilp_calls,
+            valid_steps=valid_steps_count,
+            avg_ilp_per_region=total_ilp_calls / max(1, len(regions)),
+            avg_time_per_region=total_time / max(1, len(regions))
+        )
+        
+        # AJOUTER: Enregistrer AUSSI un résumé dans clustering_stats
+        stats.record_clustering_step(
+            matrix_shape=input_matrix.shape,
+            execution_time=total_time,
+            iterations=total_clustering_steps,
+            patterns_found=valid_steps_count,
+            ilp_calls=total_ilp_calls,
+            positive_reads=0,  # Résumé global
+            negative_reads=0,  # Résumé global
+            final_cols=0,      # Résumé global
+            region_id=-1,      # -1 pour indiquer un résumé global
+            initial_cols=input_matrix.shape[1],
+            error_rate=error_rate,
+            min_row_quality=min_row_quality,
+            min_col_quality=min_col_quality
+        )
+    
+    # Log clustering results for debugging (GARDER CES LOGS)
     logger.debug(f"Clustering completed: {len(steps_result)} total steps found")
     
     # Filter and return only valid steps with non-empty groups and sufficient columns
     valid_steps = [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
-    logger.info(f"Found {len(valid_steps)} valid clustering steps")
+    logger.info(f"Found {len(valid_steps)} valid clustering steps")  # GARDER CE LOG
     return valid_steps
 
-@print_decorator('clustering')
-def clustering_step(input_matrix: np.ndarray,
-                    error_rate: float = 0.025,
-                    min_row_quality: int = 5,
-                    min_col_quality: int = 3,
-                    ) -> Tuple[List[int], List[int], List[int]]:
-    """
-    Perform a single binary clustering step on a matrix to identify one significant row separation.
+def clustering_step_with_stats(input_matrix: np.ndarray,
+                             error_rate: float = 0.025,
+                             min_row_quality: int = 5,
+                             min_col_quality: int = 3,
+                             ) -> Tuple[List[int], List[int], List[int], int]:
+    """Version de clustering_step qui retourne aussi le nombre d'appels ILP."""
+    ilp_calls = 0
     
-    This function applies alternating quasi-biclique detection to find groups of rows with 
-    similar patterns across columns. It processes both positive (1s) and negative (0s) patterns 
-    iteratively until a stable separation is found or no significant patterns remain.
-    
-    Parameters
-    ----------
-    input_matrix : np.ndarray
-        Input binary matrix with values (0, 1) where rows represent data points 
-        and columns represent features. Values indicate feature presence (1), 
-        absence (0)
-    error_rate : float, optional
-        Tolerance level for quasi-biclique detection, allowing for noise and 
-        imperfections in binary patterns. Default is 0.025 (2.5%).
-    min_row_quality : int, optional
-        Minimum number of rows required to continue processing. Algorithm stops 
-        when fewer rows remain unprocessed. Default is 5.
-    min_col_quality : int, optional
-        Minimum number of columns required to continue processing. Algorithm stops 
-        when fewer significant columns remain. Default is 3.
-    
-    Returns
-    -------
-    Tuple[List[int], List[int], List[int]]
-        Triple containing the results of binary clustering:
-        - [0] : List[int] - Row indices with positive pattern (predominantly 1s)
-        - [1] : List[int] - Row indices with negative pattern (predominantly 0s)  
-        - [2] : List[int] - Column indices where separation is most significant
-        
-        Empty lists are returned for categories where no significant patterns are found.
-    
-    Algorithm
-    ---------
-    1. **Matrix Preparation**:
-       - Create negative matrix: invert values to detect 0-patterns
-       
-    2. **Alternating Pattern Detection**:
-       - Start with all rows and columns available for processing
-       - Alternate between searching for 1-patterns and 0-patterns
-       - Apply quasi-biclique optimization to find dense sub-matrices
-       
-    3. **Noise Filtering**:
-       - For each detected pattern, calculate column homogeneity
-       - Retain only columns with homogeneity > 5 × error_rate
-       - Remove extremely noisy or inconsistent columns
-       
-    4. **Iterative Refinement**:
-       - Accumulate rows into positive or negative groups based on current pattern
-       - Remove processed rows from remaining set
-       - Continue until insufficient rows or columns remain
-       
-    5. **Termination Conditions**:
-       - Stop when fewer than min_row_quality rows remain
-       - Stop when fewer than min_col_quality columns remain  
-       - Stop when no significant patterns are detected
-    
-    See Also
-    --------
-    clustering_full_matrix : Applies quasi-biclique detection across regions
-    find_quasi_biclique : Core optimization algorithm for dense pattern detection
-       
-    """
     # Create binary matrices for pattern detection
-    # Handle -1 values by treating them as 0s in positive pattern matrix
     matrix1 = input_matrix.copy()
     matrix1[matrix1 == -1] = 0  # Convert missing values to 0 for positive patterns
     
-    # Create inverted matrix for negative pattern detection
-    # Convert -1 to 1, then invert all values (0->1, 1->0)
     matrix0 = input_matrix.copy()
     matrix0[matrix0 == -1] = 1
     matrix0 = (matrix0 - 1) * -1  # Invert matrix for negative pattern detection
     
-    logger.debug(f"Starting clustering step on {matrix1.shape[0]} rows, {matrix1.shape[1]} columns")
+    logger.debug(f"Starting clustering step on {matrix1.shape[0]} rows, {matrix1.shape[1]} columns")  # GARDER CE LOG
     
     # Initialize tracking variables for iterative clustering
     remain_rows = range(matrix1.shape[0])  # All rows initially available
@@ -257,6 +282,7 @@ def clustering_step(input_matrix: np.ndarray,
     
     # Iteratively extract patterns until insufficient data remains
     iteration = 0
+    start_time = time.time()
     while len(remain_rows) >= min_row_quality and len(current_cols) >= min_col_quality and status:
         iteration += 1
         logger.debug(f"Clustering iteration {iteration}: {len(remain_rows)} rows, {len(current_cols)} columns, pattern={'positive' if clustering_1 else 'negative'}")
@@ -268,6 +294,9 @@ def clustering_step(input_matrix: np.ndarray,
         else:
             # Search for negative patterns (dense regions of 0s in original)
             rw, cl, status = find_quasi_biclique(matrix0[remain_rows][:, current_cols], error_rate)
+        
+        if status:
+            ilp_calls += 1
              
         # Convert local indices back to global matrix coordinates
         rw = [remain_rows[r] for r in rw]  # Map row indices to original matrix
@@ -290,12 +319,56 @@ def clustering_step(input_matrix: np.ndarray,
         remain_rows = [r for r in remain_rows if r not in rw]
         # Alternate pattern detection type for next iteration
         clustering_1 = not clustering_1
+    
+    execution_time = time.time() - start_time
+    
+    # AJOUTER les statistiques EN PLUS des logs existants
+    stats = get_stats()
+    if stats and stats.enabled:
+        patterns_found = 1 if (len(rw1) > 0 or len(rw0) > 0) else 0
         
-    # Log final clustering statistics
+        # Enregistrer dans benchmark_stats
+        stats.record_benchmark_data(
+            stage='clustering_step_detailed',
+            matrix_shape=input_matrix.shape,
+            execution_time=execution_time,
+            iterations=iteration,
+            ilp_calls=ilp_calls,
+            positive_reads=len(rw1),
+            negative_reads=len(rw0),
+            final_cols=len(current_cols),
+            patterns_found=patterns_found,
+            error_rate=error_rate,
+            min_row_quality=min_row_quality,
+            min_col_quality=min_col_quality,
+            avg_time_per_iteration=execution_time / max(1, iteration),
+            avg_time_per_ilp=execution_time / max(1, ilp_calls)
+        )
+        
+        # AJOUTER: Enregistrer AUSSI dans clustering_stats
+        stats.record_clustering_step(
+            matrix_shape=input_matrix.shape,
+            execution_time=execution_time,
+            iterations=iteration,
+            patterns_found=patterns_found,
+            ilp_calls=ilp_calls,
+            positive_reads=len(rw1),
+            negative_reads=len(rw0),
+            final_cols=len(current_cols),
+            # Ajouter des champs optionnels pour cohérence
+            region_id=0,
+            initial_cols=input_matrix.shape[1],
+            error_rate=error_rate,
+            min_row_quality=min_row_quality,
+            min_col_quality=min_col_quality
+        )
+        
+    # Log final clustering statistics (GARDER CE LOG)
     logger.debug(f"Clustering step completed: {len(rw1)} positive reads, {len(rw0)} negative reads, {len(current_cols)} columns")
-    return rw1, rw0, current_cols
+    return rw1, rw0, current_cols, ilp_calls
 
 @print_decorator('clustering')
+@timed_ilp_call('complete_optimization')
 def find_quasi_biclique(
     input_matrix: np.ndarray,
     error_rate: float = 0.025
@@ -406,7 +479,9 @@ def find_quasi_biclique(
         logger.debug("Empty matrix provided to quasi-biclique detection")
         return [], [], False
 
-    logger.debug(f"Starting quasi-biclique detection on {m}x{n} matrix")
+    logger.debug(f"Starting quasi-biclique detection on {m}x{n} matrix")  # GARDER CE LOG
+    
+    optimization_phases = []
 
     # Phase 1: Seed region selection - find dense area to start optimization
     seed_rows = m // 3
@@ -469,9 +544,54 @@ def find_quasi_biclique(
     model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
         [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
 
+    total_solve_time = 0
+    phases_executed = 0
+    
     # Solve initial seeding optimization
+    seed_start = time.time()
     with suppress_gurobi_output():
         model.optimize()
+    seed_time = time.time() - seed_start
+    total_solve_time += seed_time
+    phases_executed += 1
+    
+    # AJOUTER les statistiques EN PLUS des logs existants
+    stats = get_stats()
+    if stats and stats.enabled:
+        status_str = 'optimal' if model.Status == grb.GRB.OPTIMAL else f'status_{model.Status}'
+        obj_val = model.ObjVal if hasattr(model, 'ObjVal') else 0
+        gap = model.MIPGap if hasattr(model, 'MIPGap') else 0
+        
+        stats.record_benchmark_data(
+            stage='ilp_seeding',
+            matrix_shape=(seed_rows, seed_cols),
+            execution_time=seed_time,
+            solver_status=status_str,
+            objective_value=obj_val,
+            variables=model.NumVars,
+            constraints=model.NumConstrs,
+            gap=gap,
+            error_rate=error_rate,
+            # Ajouter des champs optionnels avec des valeurs par défaut
+            rows_added=0,
+            cols_added=0,
+            phases_executed=1
+        )
+        
+        stats.record_ilp_call(
+            matrix_shape=(seed_rows, seed_cols),
+            execution_time=seed_time,
+            solver_status=status_str,
+            objective_value=obj_val,
+            phase='seeding',
+            variables=model.NumVars,
+            constraints=model.NumConstrs,
+            # Ajouter des champs optionnels avec des valeurs par défaut
+            rows_added=0,
+            cols_added=0,
+            gap=gap,
+            error_rate=error_rate
+        )
 
     # Extract seed solution results
     rw = []
@@ -482,7 +602,7 @@ def find_quasi_biclique(
         elif var.VarName.startswith('cl') and var.X > 0.5:
             cl.append(int(var.VarName.split('[')[1].split(']')[0]))
 
-    logger.debug(f"Initial seed solution: {len(rw)} rows, {len(cl)} columns")
+    logger.debug(f"Initial seed solution: {len(rw)} rows, {len(cl)} columns")  # GARDER CE LOG
 
     # Phase 3: Row extension - add compatible rows
     rem_rows = [r for r in rows_sorted if r not in lpRows.keys()]
@@ -514,8 +634,49 @@ def find_quasi_biclique(
         model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
             [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_row')
         
+        row_start = time.time()
         with suppress_gurobi_output():
             model.optimize()
+        row_time = time.time() - row_start
+        total_solve_time += row_time
+        phases_executed += 1
+        
+        # Enregistrer les statistiques de l'extension des lignes
+        if stats and stats.enabled:
+            status_str = 'optimal' if model.Status == grb.GRB.OPTIMAL else f'status_{model.Status}'
+            obj_val = model.ObjVal if hasattr(model, 'ObjVal') else 0
+            gap = model.MIPGap if hasattr(model, 'MIPGap') else 0
+            
+            stats.record_benchmark_data(
+                stage='ilp_row_extension',
+                matrix_shape=(len(rw) + len(potential_rows), len(cl)),
+                execution_time=row_time,
+                solver_status=status_str,
+                objective_value=obj_val,
+                variables=model.NumVars,
+                constraints=model.NumConstrs,
+                rows_added=len(potential_rows),
+                gap=gap,
+                error_rate=error_rate,
+                # Ajouter des champs optionnels avec des valeurs par défaut
+                cols_added=0,
+                phases_executed=2
+            )
+            
+            stats.record_ilp_call(
+                matrix_shape=(len(rw) + len(potential_rows), len(cl)),
+                execution_time=row_time,
+                solver_status=status_str,
+                objective_value=obj_val,
+                phase='row_extension',
+                rows_added=len(potential_rows),
+                variables=model.NumVars,
+                constraints=model.NumConstrs,
+                gap=gap,
+                error_rate=error_rate,
+                # Ajouter des champs optionnels avec des valeurs par défaut
+                cols_added=0
+            )
 
     # Extract results after row extension
     rw = []
@@ -556,17 +717,75 @@ def find_quasi_biclique(
         model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
             [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_col')
         
+        col_start = time.time()
         with suppress_gurobi_output():
             model.optimize()
-
-    # Extract final optimization results
-    rw = []
-    cl = []
-    for var in model.getVars():
-        if var.VarName.startswith('rw') and var.X > 0.5:
-            rw.append(int(var.VarName.split('[')[1].split(']')[0]))
-        elif var.VarName.startswith('cl') and var.X > 0.5:
-            cl.append(int(var.VarName.split('[')[1].split(']')[0]))
+        col_time = time.time() - col_start
+        total_solve_time += col_time
+        phases_executed += 1
+        
+        # Enregistrer les statistiques de l'extension des colonnes
+        if stats and stats.enabled:
+            status_str = 'optimal' if model.Status == grb.GRB.OPTIMAL else f'status_{model.Status}'
+            obj_val = model.ObjVal if hasattr(model, 'ObjVal') else 0
+            gap = model.MIPGap if hasattr(model, 'MIPGap') else 0
+            
+            stats.record_benchmark_data(
+                stage='ilp_column_extension',
+                matrix_shape=(len(rw), len(cl) + len(potential_cols)),
+                execution_time=col_time,
+                solver_status=status_str,
+                objective_value=obj_val,
+                variables=model.NumVars,
+                constraints=model.NumConstrs,
+                cols_added=len(potential_cols),
+                gap=gap,
+                error_rate=error_rate,
+                # Ajouter des champs optionnels avec des valeurs par défaut
+                rows_added=0,
+                phases_executed=3
+            )
+            
+            stats.record_ilp_call(
+                matrix_shape=(len(rw), len(cl) + len(potential_cols)),
+                execution_time=col_time,
+                solver_status=status_str,
+                objective_value=obj_val,
+                phase='column_extension',
+                cols_added=len(potential_cols),
+                variables=model.NumVars,
+                constraints=model.NumConstrs,
+                gap=gap,
+                error_rate=error_rate,
+                # Ajouter des champs optionnels avec des valeurs par défaut
+                rows_added=0
+            )
+    
+    # AJOUTER un résumé final EN PLUS des logs existants
+    if stats and stats.enabled:
+        final_status = 'optimal' if model.Status == grb.GRB.OPTIMAL else f'status_{model.Status}'
+        final_obj_val = model.ObjVal if hasattr(model, 'ObjVal') else 0
+        final_gap = model.MIPGap if hasattr(model, 'MIPGap') else 0
+        
+        stats.record_benchmark_data(
+            stage='ilp_complete_summary',
+            matrix_shape=input_matrix.shape,
+            execution_time=total_solve_time,
+            solver_status=final_status,
+            objective_value=final_obj_val,
+            phases_executed=phases_executed,
+            final_rows=len(rw),
+            final_cols=len(cl),
+            solution_density=len(rw) * len(cl) / max(1, input_matrix.size),
+            avg_time_per_phase=total_solve_time / max(1, phases_executed),
+            # Ajouter tous les champs potentiels
+            variables=model.NumVars,
+            constraints=model.NumConstrs,
+            gap=final_gap,
+            error_rate=error_rate,
+            rows_added=0,
+            cols_added=0
+        )
 
     # Check optimization status and return appropriate results
     status = model.Status
@@ -581,5 +800,5 @@ def find_quasi_biclique(
         logger.warning(f"Optimization terminated with non-optimal status: {status}")
         return [], [], False
     
-    logger.debug(f"Quasi-biclique found: {len(rw)} rows, {len(cl)} columns")        
+    logger.debug(f"Quasi-biclique found: {len(rw)} rows, {len(cl)} columns")  # GARDER CE LOG        
     return rw, cl, True
