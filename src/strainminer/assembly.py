@@ -112,6 +112,10 @@ def run_create_new_contigs(path_to_src: str, originalAssembly: str, readsFile: s
         
         logger.debug(f"Running create_new_contigs: {' '.join(command)}")
         
+        # Check if build directory and executable exist
+        if not build_path.exists():
+            raise RuntimeError(f"create_new_contigs executable not found at {build_path}")
+        
         with open(os.path.join(tmp_dir, "create_new_contigs.log"), "w") as log_file:
             result = subprocess.run(command, stdout=log_file, stderr=subprocess.STDOUT)
         

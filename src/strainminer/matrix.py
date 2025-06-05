@@ -9,7 +9,7 @@ from .stats import timed_matrix_operation
 
 # Fix import path - decorateur is at src level, not within strainminer package
 try:
-    from decorateur.perf import print_decorator
+    from ..decorateur.perf import print_decorator
 except ImportError:
     # Fallback if decorateur module is not available
     def print_decorator(name):

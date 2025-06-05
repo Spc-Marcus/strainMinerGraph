@@ -240,7 +240,7 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
         # Configure display mode if specified
         if mode_to_set:
             try:
-                from decorateur.perf import set_display_mode
+                from ..decorateur.perf import set_display_mode
                 set_display_mode(mode_to_set)
                 logger.debug(f"Display mode configured: {mode_to_set}")
             except ImportError as e:

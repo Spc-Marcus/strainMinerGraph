@@ -453,7 +453,7 @@ def init(assembly_file: str,
         # Configure print mode if specified
         if print_mode:
             try:
-                from decorateur.perf import set_display_mode
+                from ..decorateur.perf import set_display_mode
                 set_display_mode(print_mode)
                 logger.debug(f"Debug print mode enabled: {print_mode}")
             except ImportError as e:
