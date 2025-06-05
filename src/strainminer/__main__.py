@@ -12,19 +12,25 @@ from .core import (__version__, validate_input_files, setup_output_directories,
 from .pipeline import run_strainminer_pipeline
 
 
-def setup_logging(log_dir: str, verbose: bool = False) -> logging.Logger:
+def setup_logging(log_dir: str, debug_level: int = 2, enable_file_logging: bool = False) -> logging.Logger:
     """
     Configure comprehensive logging for the StrainMiner pipeline.
     
-    Sets up both file and console logging with appropriate levels and formatting.
-    Creates timestamped log files for persistent record keeping.
+    Sets up console logging and optionally file logging with appropriate levels and formatting.
+    Creates timestamped log files for persistent record keeping only if enabled.
     
     Parameters
     ----------
     log_dir : str
         Directory where log files should be written
-    verbose : bool, optional
-        Enable verbose console output for debugging. Default is False.
+    debug_level : int, optional
+        Debug level (0-3):
+        - 0: CRITICAL only
+        - 1: CRITICAL + WARNING
+        - 2: CRITICAL + WARNING + INFO (default)
+        - 3: CRITICAL + WARNING + INFO + DEBUG
+    enable_file_logging : bool, optional
+        Whether to enable file logging. Default is False.
         
     Returns
     -------
@@ -33,16 +39,9 @@ def setup_logging(log_dir: str, verbose: bool = False) -> logging.Logger:
         
     Examples
     --------
-    >>> logger = setup_logging("/path/to/logs", verbose=True)
+    >>> logger = setup_logging("/path/to/logs", debug_level=3)
     >>> logger.info("Pipeline started")
     """
-    # Create log directory if it doesn't exist
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Create timestamped log filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = Path(log_dir) / f"strainminer_{timestamp}.log"
-    
     # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -56,25 +55,60 @@ def setup_logging(log_dir: str, verbose: bool = False) -> logging.Logger:
     gurobi_logger.setLevel(logging.ERROR)
     gurobi_logger.propagate = False
     
-    # File handler - always detailed
-    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+    # Define console log levels based on debug_level
+    console_levels = {
+        0: logging.CRITICAL,
+        1: logging.WARNING,
+        2: logging.INFO,
+        3: logging.DEBUG
+    }
     
-    # Console handler - level depends on verbose flag
+    console_level = console_levels.get(debug_level, logging.INFO)
+    
+    # File handler - only if enabled and with same level as console
+    if enable_file_logging:
+        # Create log directory if it doesn't exist
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Create timestamped log filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = Path(log_dir) / f"strainminer_{timestamp}.log"
+        
+        file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        file_handler.setLevel(console_level)  # Same level as console
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    
+    # Console handler - level depends on debug_level
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    console_handler.setLevel(console_level)
+    
+    # Force immediate flush for all console output
+    class FlushingStreamHandler(logging.StreamHandler):
+        def emit(self, record):
+            super().emit(record)
+            self.flush()
+    
+    console_handler = FlushingStreamHandler(sys.stdout)
+    console_handler.setLevel(console_level)
+    
     console_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%H:%M:%S'
     )
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
+    
+    # Log the current debug level
+    level_names = {0: "CRITICAL", 1: "WARNING", 2: "INFO", 3: "DEBUG"}
+    if enable_file_logging:
+        logger.debug(f"Logging configured - Console and File level: {level_names.get(debug_level, 'INFO')}")
+    else:
+        logger.debug(f"Logging configured - Console level: {level_names.get(debug_level, 'INFO')}, File logging: disabled")
     
     return logger
 
@@ -150,7 +184,7 @@ def validate_arguments(args: argparse.Namespace) -> None:
         if not os.access(parent_dir, os.W_OK):
             raise PermissionError(f"Cannot write to parent directory: {parent_dir}")
 
-def setup_environment(output_folder: str, verbose: bool = False) -> Dict[str, str]:
+def setup_environment(output_folder: str, debug_level: int = 2, enable_file_logging: bool = False) -> Dict[str, str]:
     """
     Setup the execution environment and directory structure.
     
@@ -161,8 +195,10 @@ def setup_environment(output_folder: str, verbose: bool = False) -> Dict[str, st
     ----------
     output_folder : str
         Base output directory path
-    verbose : bool, optional
-        Enable verbose logging output. Default is False.
+    debug_level : int, optional
+        Debug level (0-3). Default is 2.
+    enable_file_logging : bool, optional
+        Whether to enable file logging. Default is False.
         
     Returns
     -------
@@ -177,17 +213,17 @@ def setup_environment(output_folder: str, verbose: bool = False) -> Dict[str, st
         
     Examples
     --------
-    >>> env_paths = setup_environment("/path/to/output", verbose=True)
+    >>> env_paths = setup_environment("/path/to/output", debug_level=3)
     >>> print(f"Temporary files: {env_paths['tmp_dir']}")
     >>> print(f"Logs: {env_paths['logs_dir']}")
     """
     # Create comprehensive directory structure
     dir_paths = setup_output_directories(output_folder)
     
-    # Setup logging with the created log directory
-    logger = setup_logging(dir_paths['logs_dir'], verbose)
-    logger.info(f"StrainMiner v{__version__} - Environment setup")
-    logger.info(f"Output directory: {dir_paths['output_dir']}")
+    # Setup logging with the created log directory and debug level
+    logger = setup_logging(dir_paths['logs_dir'], debug_level, enable_file_logging)
+    logger.debug(f"StrainMiner v{__version__} - Environment setup")
+    logger.debug(f"Output directory: {dir_paths['output_dir']}")
     
     # Setup external tools directory (build)
     strainminer_build_dir = Path(__file__).parent / 'build'
@@ -196,12 +232,12 @@ def setup_environment(output_folder: str, verbose: bool = False) -> Dict[str, st
     build_dir = None
     if strainminer_build_dir.exists():
         build_dir = str(strainminer_build_dir.resolve())
-        logger.info(f"Found build directory: {build_dir}")
+        logger.debug(f"Found build directory: {build_dir}")
     elif root_build_dir.exists():
         try:
             strainminer_build_dir.symlink_to(root_build_dir.resolve())
             build_dir = str(strainminer_build_dir.resolve())
-            logger.info(f"Created symlink to build directory: {build_dir}")
+            logger.debug(f"Created symlink to build directory: {build_dir}")
         except OSError as e:
             logger.warning(f"Could not create symlink to build directory: {e}")
             build_dir = str(root_build_dir.resolve())
@@ -269,8 +305,9 @@ def init(assembly_file: str,
          min_row_quality: int = 5,
          min_col_quality: int = 3,
          min_base_quality: int = 10,
-         verbose: bool = False,
+         debug_level: int = 2,
          keep_temp: bool = False,
+         enable_file_logging: bool = False,
          print_mode: Optional[str] = None) -> int:
     """
     Initialize and execute the StrainMiner pipeline.
@@ -297,10 +334,12 @@ def init(assembly_file: str,
         Minimum positions per region (default: 3)
     min_base_quality : int, optional
         Minimum base quality score (default: 10)
-    verbose : bool, optional
-        Enable verbose logging (default: False)
+    debug_level : int, optional
+        Debug level 0-3 (default: 2)
     keep_temp : bool, optional
         Keep temporary files (default: False)
+    enable_file_logging : bool, optional
+        Enable file logging (default: False)
 
     Returns
     -------
@@ -333,7 +372,7 @@ def init(assembly_file: str,
     ...     window=2000,               # Smaller windows for resolution
     ...     min_coverage=0.7,          # Higher coverage requirement  
     ...     min_base_quality=15,       # Stricter quality filter
-    ...     verbose=True,              # Detailed logging
+    ...     debug_level=3,             # Maximum debugging output
     ...     keep_temp=True             # Keep intermediate files
     ... )
     
@@ -360,7 +399,7 @@ def init(assembly_file: str,
     ...     error_rate=0.1,            # More permissive for noisy data
     ...     min_coverage=0.3,          # Lower threshold to include more data
     ...     min_row_quality=2,         # Accept smaller clusters
-    ...     verbose=True,              # Maximum logging detail
+    ...     debug_level=3,             # Maximum debugging detail
     ...     keep_temp=True             # Preserve all intermediate files
     ... )
     
@@ -400,41 +439,45 @@ def init(assembly_file: str,
     start_time = datetime.now()
     
     try:
-        # Setup logging
-        env_paths = setup_environment(output_folder, verbose)
+        # Setup logging with debug level and file logging option
+        env_paths = setup_environment(output_folder, debug_level, enable_file_logging)
         logger = logging.getLogger(__name__)  # Get logger after setup
         
         # Configure print mode if specified
         if print_mode:
-            from ..decorateur.perf import set_print_mode
-            set_print_mode(print_mode)
-            logger.info(f"Debug print mode enabled: {print_mode}")
+            try:
+                from decorateur.perf import set_display_mode
+                set_display_mode(print_mode)
+                logger.debug(f"Debug print mode enabled: {print_mode}")
+            except ImportError as e:
+                logger.warning(f"Could not import display mode module: {e}")
         
-        logger.info(f"StrainMiner v{__version__} - Pipeline Initialization")
-        logger.info(f"Assembly: {assembly_file}")
-        logger.info(f"BAM file: {bam_file}")
-        logger.info(f"Reads: {reads_file}")
-        logger.info(f"Output: {output_folder}")
+        logger.info(f"StrainMiner v{__version__} starting")
+        logger.debug(f"Debug level set to: {debug_level}")
+        logger.debug(f"Assembly: {assembly_file}")
+        logger.debug(f"BAM file: {bam_file}")
+        logger.debug(f"Reads: {reads_file}")
+        logger.debug(f"Output: {output_folder}")
         
         # Validate inputs
+        logger.debug("Validating input files...")
         if not validate_input_files(bam_file, assembly_file, reads_file):            
+            logger.critical("Input validation failed")
             return 1
         
-        logger.info("Input validation completed successfully")
+        logger.debug("Input validation completed successfully")
         
         # Check system resources
         try:
             import psutil
             memory_gb = psutil.virtual_memory().total / (1024**3)
-            logger.info(f"Available memory: {memory_gb:.1f} GB")
+            logger.debug(f"Available memory: {memory_gb:.1f} GB")
             if memory_gb < 4:
                 logger.warning("Less than 4GB memory available - consider using larger windows")
         except ImportError:
             logger.debug("psutil not available - skipping memory check")
         
-        # logger.info("Starting StrainMiner pipeline execution")
-        
-        logger.info("Starting StrainMiner pipeline execution")
+        logger.info("Starting pipeline execution")
         
         final_assembly = run_strainminer_pipeline(
             bam_file=bam_file,
@@ -454,18 +497,25 @@ def init(assembly_file: str,
         runtime = datetime.now() - start_time
         logger.info(f"Pipeline completed successfully in {runtime}")
         logger.info(f"Final assembly: {final_assembly}")
-        logger.info(f"Results written to: {Path(output_folder).absolute() / 'results'}")
         
         # Cleanup if requested
         if not keep_temp:
-            logger.info("Cleaning up temporary files...")
+            logger.debug("Cleaning up temporary files...")
             cleanup_temp_files(output_folder)
         
         return 0
         
     except Exception as e:
         runtime = datetime.now() - start_time
-        logger.error(f"Pipeline failed after {runtime}: {e}")
+        # Only show error details at debug level 3
+        if debug_level >= 3:
+            print(f"FATAL ERROR after {runtime}: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
+            sys.stdout.flush()
+        try:
+            logger.critical(f"Pipeline failed after {runtime}: {e}")
+        except:
+            pass  # Logger might not be available
         return 2
 
 def parse_arguments() -> argparse.Namespace:
@@ -503,13 +553,13 @@ def parse_arguments() -> argparse.Namespace:
             # Basic usage
             python -m strainminer -a assembly.gfa -b reads.bam -r reads.fastq -o output/
             
-            # High-resolution analysis
+            # High-resolution analysis with debug output and file logging
             python -m strainminer -a assembly.gfa -b reads.bam -r reads.fastq -o output/ \\
-                                    --error-rate 0.01 --window 2000 --verbose
+                                    --error-rate 0.01 --window 2000 --debug 3 --log
             
-            # Long-read analysis  
-            python -m strainminer -a assembly.gfa -b ont.bam -r ont.fastq -o output/ \\
-                                    --error-rate 0.08 --min-base-quality 7
+            # Minimal output (only critical messages)
+            python -m strainminer -a assembly.gfa -b reads.bam -r reads.fastq -o output/ \\
+                                    --debug 0
 
             For more information, visit: https://github.com/your-repo/strainminer
                     """
@@ -591,9 +641,19 @@ def parse_arguments() -> argparse.Namespace:
     # Output and debugging options
     output_opts = parser.add_argument_group('Output and Debugging Options')
     output_opts.add_argument(
-        '--verbose', 
+        '--debug', 
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=2,
+        metavar='LEVEL',
+        help='Debug level: 0=CRITICAL only, 1=CRITICAL+WARNING, '
+             '2=CRITICAL+WARNING+INFO (default), 3=CRITICAL+WARNING+INFO+DEBUG'
+    )
+    output_opts.add_argument(
+        '--log', 
         action='store_true',
-        help='Enable verbose logging output for detailed progress monitoring'
+        help='Enable file logging to save logs to output/logs/ directory. '
+             'Logs will be saved at the same level as console output.'
     )
     output_opts.add_argument(
         '--keep-temp', 
@@ -649,21 +709,8 @@ def cleanup_temp_files(output_folder: str) -> None:
 def main() -> int:
     """
     Main entry point for the StrainMiner command-line interface.
-    
-    Handles argument parsing, pipeline initialization, and execution with
-    comprehensive error handling and user-friendly error messages.
-    
-    Returns
-    -------
-    int
-        Exit code for shell integration (0 = success, non-zero = error)
-        
-    Examples
-    --------
-    >>> # Called automatically when running as module
-    >>> # python -m strainminer [arguments]
-    >>> exit_code = main()
     """
+    # Suppress matplotlib logs early
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
     
@@ -683,8 +730,9 @@ def main() -> int:
             min_row_quality=args.min_row_quality,
             min_col_quality=args.min_col_quality,
             min_base_quality=args.min_base_quality,
-            verbose=args.verbose,
+            debug_level=args.debug,
             keep_temp=args.keep_temp,
+            enable_file_logging=args.log,  # Pass the --log flag
             print_mode=getattr(args, 'print', None)
         )
         
@@ -696,7 +744,7 @@ def main() -> int:
         
     except Exception as e:
         print(f"FATAL ERROR: {e}")
-        if '--verbose' in sys.argv:
+        if '--debug' in sys.argv and '3' in sys.argv:
             print(f"Traceback: {traceback.format_exc()}")
         return 1
 

@@ -2,7 +2,16 @@ import numpy as np
 import logging
 from typing import List, Tuple
 from sklearn.cluster import AgglomerativeClustering
-from ..decorateur.perf import print_decorator
+
+# Fix import path - decorateur is at src level, not within strainminer package
+try:
+    from decorateur.perf import print_decorator
+except ImportError:
+    # Fallback if decorateur module is not available
+    def print_decorator(name):
+        def decorator(func):
+            return func
+        return decorator
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,8 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
             logger.warning("Empty matrix or read names, returning empty clusters")
             return []
         
+        logger.debug(f"Starting post-processing: {matrix.shape[0]} reads, {len(steps)} clustering steps")
+        
         # Begin with all reads in the same group
         clusters = [list(range(len(read_names)))]
         
@@ -75,8 +86,10 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                 reads0 = list(reads0)
             
             if len(reads1) == 0 or len(reads0) == 0:
+                logger.debug(f"Skipping step {step_idx}: empty group (reads1={len(reads1)}, reads0={len(reads0)})")
                 continue
                 
+            logger.debug(f"Processing step {step_idx}: {len(reads1)} vs {len(reads0)} reads, {len(cols)} columns")
             new_clusters = []
             
             # For each existing cluster, split it based on current step
@@ -92,6 +105,8 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
             
             clusters = new_clusters
         
+        logger.debug(f"After hierarchical splitting: {len(clusters)} clusters")
+        
         # Remove small clusters and collect orphaned reads
         min_cluster_size = 5
         orphaned_reads = []
@@ -100,11 +115,12 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
         for cluster_idx, cluster in enumerate(clusters):
             if len(cluster) <= min_cluster_size:
                 orphaned_reads.extend(cluster)
+                logger.debug(f"Orphaning small cluster {cluster_idx} with {len(cluster)} reads")
             else:
                 large_clusters.append(cluster)
         
         clusters = large_clusters
-        logger.debug(f"Kept {len(clusters)} large clusters, {len(orphaned_reads)} orphaned reads")
+        logger.info(f"Kept {len(clusters)} large clusters, orphaned {len(orphaned_reads)} reads")
         
         if len(clusters) == 0:
             logger.warning("No large clusters found after filtering")
@@ -164,7 +180,7 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                     clusters[min_dist_idx].append(read_idx)
                     reassigned_count += 1
         
-        logger.info(f"Reassigned {reassigned_count} orphaned reads")
+        logger.info(f"Reassigned {reassigned_count} orphaned reads to existing clusters")
         
         logger.debug("Merging similar clusters...")
         
@@ -205,14 +221,14 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                         merged_clusters[label] = list(clusters[idx])
                 
                 clusters = list(merged_clusters.values())
-                logger.info(f"Merged to {len(clusters)} final clusters")
+                logger.info(f"Merged similar clusters to {len(clusters)} final strain groups")
         
         logger.debug("Converting to read names...")
         
         # Convert read indices to read names and sort
         result_clusters = []
         for cluster_idx, cluster in enumerate(clusters):
-            logger.debug(f"Converting cluster {cluster_idx} - type: {type(cluster)}, length: {len(cluster)}")
+            logger.debug(f"Converting cluster {cluster_idx} with {len(cluster)} reads")
             
             if len(cluster) > 0:  # Only include non-empty clusters
                 # CORRECTION: Ensure cluster is a list
@@ -225,11 +241,11 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
                     cluster_names = [read_names[r] for r in valid_indices]
                     cluster_names_sorted = np.array(sorted(cluster_names))
                     result_clusters.append(cluster_names_sorted)
-                    logger.debug(f"Cluster {cluster_idx}: {len(cluster_names)} valid reads")
+                    logger.debug(f"Final cluster {cluster_idx}: {len(cluster_names)} reads")
         
-        logger.info(f"Post-processing completed: {len(result_clusters)} strain clusters identified")
+        logger.info(f"Post-processing completed: {len(result_clusters)} distinct strain clusters identified")
         return result_clusters
         
     except Exception as e:
-        logger.error(f"Post-processing failed: {e}")
+        logger.critical(f"Post-processing failed: {e}")
         raise RuntimeError(f"Could not complete post-processing: {e}") from e

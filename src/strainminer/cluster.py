@@ -1,21 +1,48 @@
 from typing import List, Tuple
 import numpy as np
-
 import gurobipy as grb
 import logging
-from ..decorateur.perf import print_decorator
+import os
+import sys
+import contextlib
+from io import StringIO
+
+# Fix import path - decorateur is at src level, not within strainminer package
+try:
+    from decorateur.perf import print_decorator
+except ImportError:
+    # Fallback if decorateur module is not available
+    def print_decorator(name):
+        def decorator(func):
+            return func
+        return decorator
 
 logger = logging.getLogger(__name__)
 
-# Supprimer les logs Gurobi excessifs
+# Suppress ALL Gurobi output
+os.environ['GRB_LICENSE_FILE'] = ''  # Prevent license file messages
 gurobi_logger = logging.getLogger('gurobipy')
-gurobi_logger.setLevel(logging.WARNING)
+gurobi_logger.setLevel(logging.CRITICAL)
+gurobi_logger.propagate = False
 
 options = {
 	"WLSACCESSID":"af4b8280-70cd-47bc-aeef-69ecf14ecd10",
 	"WLSSECRET":"04da6102-8eb3-4e38-ba06-660ea8f87bf2",
 	"LICENSEID":2669217
 }
+
+@contextlib.contextmanager
+def suppress_gurobi_output():
+    """Context manager to completely suppress Gurobi output"""
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    try:
+        sys.stdout = StringIO()
+        sys.stderr = StringIO()
+        yield
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
 
 @print_decorator('clustering')
 def clustering_full_matrix(
@@ -105,6 +132,8 @@ def clustering_full_matrix(
             
             # Only process regions that meet minimum quality threshold
             if len(remain_cols) >= min_col_quality:
+                logger.debug(f"Processing region {idx} with {len(remain_cols)} columns")
+                
                 # Iteratively extract patterns until no more significant ones found
                 while len(remain_cols) >= min_col_quality and status:
                     # Apply clustering to current remaining columns
@@ -122,16 +151,19 @@ def clustering_full_matrix(
                     else:
                         # Save valid clustering step
                         steps_result.append((reads1, reads0, cols))
+                        logger.debug(f"Found clustering step: {len(reads1)} vs {len(reads0)} reads, {len(cols)} columns")
                         # Remove processed columns from remaining set
                         remain_cols = [c for c in remain_cols if c not in cols]
+            else:
+                logger.debug(f"Skipping region {idx}: insufficient columns ({len(remain_cols)} < {min_col_quality})")
     
     # Log clustering results for debugging
-    logger.debug(f"Number of clustering steps: {len(steps_result)}")
-    for i, step in enumerate(steps_result):
-        logger.debug(f"Step {i}: Group1={len(step[0])}, Group0={len(step[1])}, Cols={len(step[2])}")
+    logger.debug(f"Clustering completed: {len(steps_result)} total steps found")
     
     # Filter and return only valid steps with non-empty groups and sufficient columns
-    return [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
+    valid_steps = [step for step in steps_result if len(step[0]) > 0 and len(step[1]) > 0 and len(step[2]) >= min_col_quality]
+    logger.info(f"Found {len(valid_steps)} valid clustering steps")
+    return valid_steps
 
 @print_decorator('clustering')
 def clustering_step(input_matrix: np.ndarray,
@@ -214,6 +246,8 @@ def clustering_step(input_matrix: np.ndarray,
     matrix0[matrix0 == -1] = 1
     matrix0 = (matrix0 - 1) * -1  # Invert matrix for negative pattern detection
     
+    logger.debug(f"Starting clustering step on {matrix1.shape[0]} rows, {matrix1.shape[1]} columns")
+    
     # Initialize tracking variables for iterative clustering
     remain_rows = range(matrix1.shape[0])  # All rows initially available
     current_cols = range(matrix1.shape[1])  # All columns initially available
@@ -222,7 +256,11 @@ def clustering_step(input_matrix: np.ndarray,
     rw1, rw0 = [], []  # Accumulate rows for positive and negative groups
     
     # Iteratively extract patterns until insufficient data remains
+    iteration = 0
     while len(remain_rows) >= min_row_quality and len(current_cols) >= min_col_quality and status:
+        iteration += 1
+        logger.debug(f"Clustering iteration {iteration}: {len(remain_rows)} rows, {len(current_cols)} columns, pattern={'positive' if clustering_1 else 'negative'}")
+        
         # Apply quasi-biclique detection on appropriate matrix
         if clustering_1:
             # Search for positive patterns (dense regions of 1s)
@@ -241,8 +279,12 @@ def clustering_step(input_matrix: np.ndarray,
         if status and len(cl) > 0:
             if clustering_1:
                 rw1.extend(rw)  # Add to positive pattern group
+                logger.debug(f"Added {len(rw)} rows to positive group")
             else:
                 rw0.extend(rw)  # Add to negative pattern group
+                logger.debug(f"Added {len(rw)} rows to negative group")
+        else:
+            logger.debug(f"No valid pattern found in iteration {iteration}")
                 
         # Remove processed rows from remaining set for next iteration
         remain_rows = [r for r in remain_rows if r not in rw]
@@ -250,7 +292,7 @@ def clustering_step(input_matrix: np.ndarray,
         clustering_1 = not clustering_1
         
     # Log final clustering statistics
-    logger.debug(f"Final clustering results: rw1={len(rw1)}, rw0={len(rw0)}, current_cols={len(current_cols)}")
+    logger.debug(f"Clustering step completed: {len(rw1)} positive reads, {len(rw0)} negative reads, {len(current_cols)} columns")
     return rw1, rw0, current_cols
 
 @print_decorator('clustering')
@@ -361,7 +403,10 @@ def find_quasi_biclique(
 
     # Handle edge case: empty matrix
     if m == 0 or n == 0:
+        logger.debug("Empty matrix provided to quasi-biclique detection")
         return [], [], False
+
+    logger.debug(f"Starting quasi-biclique detection on {m}x{n} matrix")
 
     # Phase 1: Seed region selection - find dense area to start optimization
     seed_rows = m // 3
@@ -385,17 +430,23 @@ def find_quasi_biclique(
                 seed_rows = x
                 seed_cols = y
 
-    # Initialize Gurobi optimization environment
+    logger.debug(f"Using seed region: {seed_rows} rows x {seed_cols} columns")
+
+    # Initialize Gurobi optimization environment with complete output suppression
     try:
-        env = grb.Env(params=options)
-        env.setParam('OutputFlag', 0)  # Disable all output
-        env.setParam('LogToConsole', 0)  # Disable console logging
-        model = grb.Model('max_model', env=env)          
-        model.Params.OutputFlag = 0  # Suppress output
-        model.Params.LogToConsole = 0  # Disable console logging
-        model.Params.MIPGAP = 0.05   # 5% optimality gap tolerance
-        model.Params.TimeLimit = 20  # 20 second time limit
+        with suppress_gurobi_output():
+            env = grb.Env(params=options)
+            env.setParam('OutputFlag', 0)
+            env.setParam('LogToConsole', 0)
+            env.setParam('LogFile', "")
+            model = grb.Model('max_model', env=env)          
+            model.Params.OutputFlag = 0
+            model.Params.LogToConsole = 0
+            model.Params.LogFile = ""
+            model.Params.MIPGAP = 0.05
+            model.Params.TimeLimit = 20
     except Exception as e:
+        logger.warning(f"Failed to initialize Gurobi environment: {e}")
         return [], [], False
 
     # Phase 2: Create initial optimization model with seed region
@@ -419,7 +470,8 @@ def find_quasi_biclique(
         [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld')
 
     # Solve initial seeding optimization
-    model.optimize()
+    with suppress_gurobi_output():
+        model.optimize()
 
     # Extract seed solution results
     rw = []
@@ -429,6 +481,8 @@ def find_quasi_biclique(
             rw.append(int(var.VarName.split('[')[1].split(']')[0]))
         elif var.VarName.startswith('cl') and var.X > 0.5:
             cl.append(int(var.VarName.split('[')[1].split(']')[0]))
+
+    logger.debug(f"Initial seed solution: {len(rw)} rows, {len(cl)} columns")
 
     # Phase 3: Row extension - add compatible rows
     rem_rows = [r for r in rows_sorted if r not in lpRows.keys()]
@@ -441,6 +495,7 @@ def find_quasi_biclique(
 
     # Add compatible rows to model and re-optimize
     if potential_rows:
+        logger.debug(f"Extending with {len(potential_rows)} compatible rows")
         lpRows.update(model.addVars(potential_rows, lb=0, ub=1, vtype=grb.GRB.INTEGER, name='rw'))
         new_cells = model.addVars([(r, c) for r in potential_rows for c in cl], 
                                 lb=0, ub=1, vtype=grb.GRB.INTEGER, name='ce')
@@ -459,7 +514,8 @@ def find_quasi_biclique(
         model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
             [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_row')
         
-        model.optimize()
+        with suppress_gurobi_output():
+            model.optimize()
 
     # Extract results after row extension
     rw = []
@@ -481,6 +537,7 @@ def find_quasi_biclique(
 
     # Add compatible columns to model and perform final optimization
     if potential_cols:
+        logger.debug(f"Extending with {len(potential_cols)} compatible columns")
         lpCols.update(model.addVars(potential_cols, lb=0, ub=1, vtype=grb.GRB.INTEGER, name='cl'))
         new_cells = model.addVars([(r, c) for r in rw for c in potential_cols], 
                                 lb=0, ub=1, vtype=grb.GRB.INTEGER, name='ce')
@@ -499,7 +556,8 @@ def find_quasi_biclique(
         model.addConstr(error_rate * lpCells.sum() >= grb.quicksum(
             [lpCells[coord] * (1 - X_problem[coord[0]][coord[1]]) for coord in lpCells]), 'err_thrshld_col')
         
-        model.optimize()
+        with suppress_gurobi_output():
+            model.optimize()
 
     # Extract final optimization results
     rw = []
@@ -514,10 +572,14 @@ def find_quasi_biclique(
     status = model.Status
 
     if status in (grb.GRB.INF_OR_UNBD, grb.GRB.INFEASIBLE, grb.GRB.UNBOUNDED):
+        logger.warning("Optimization problem is infeasible or unbounded")
         return [], [], False
     elif status == grb.GRB.TIME_LIMIT:
+        logger.warning("Optimization hit time limit, returning partial solution")
         return rw, cl, True  # Return solution even with time limit
     elif status != grb.GRB.OPTIMAL:
+        logger.warning(f"Optimization terminated with non-optimal status: {status}")
         return [], [], False
-            
+    
+    logger.debug(f"Quasi-biclique found: {len(rw)} rows, {len(cl)} columns")        
     return rw, cl, True

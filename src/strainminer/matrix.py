@@ -4,7 +4,16 @@ from sklearn.cluster import FeatureAgglomeration
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.impute import KNNImputer
 import logging
-from ..decorateur.perf import print_decorator
+
+# Fix import path - decorateur is at src level, not within strainminer package
+try:
+    from decorateur.perf import print_decorator
+except ImportError:
+    # Fallback if decorateur module is not available
+    def print_decorator(name):
+        def decorator(func):
+            return func
+        return decorator
 
 logger = logging.getLogger(__name__)
 
@@ -354,7 +363,7 @@ def impute_missing_values(matrix: np.ndarray, n_neighbors: int = 10) -> np.ndarr
         return imputed_matrix
         
     except Exception as e:
-        logger.error(f"Imputation failed: {e}")
+        logger.critical(f"Imputation failed: {e}")
         raise RuntimeError(f"Could not impute missing values: {e}") from e
 
 

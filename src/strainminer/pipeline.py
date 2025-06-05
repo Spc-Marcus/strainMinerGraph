@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import traceback
 import numpy as np
 import pandas as pd
 import pysam as ps
@@ -76,7 +77,7 @@ class StrainMinerPipeline:
             contig_name = contig['SN']
             contig_length = contig['LN']
             
-            logger.info(f"Processing contig {contig_name} (length: {contig_length:,} bp)")
+            logger.debug(f"Processing contig {contig_name} (length: {contig_length:,} bp)")
             
             list_of_reads = []
             index_of_reads = {}
@@ -120,7 +121,7 @@ class StrainMinerPipeline:
                                         index_of_reads[read] = len(list_of_reads)
                                         list_of_reads.append(read)
                                     haplotypes_here[index_of_reads[read]] = idx
-                            logger.info(f"Found {len(clusters)} strain groups in window {start_pos}-{end_pos}")
+                            logger.debug(f"Found {len(clusters)} strain groups in window {start_pos}-{end_pos}")
                         else:
                             # Single group or no clustering
                             for read in reads:
@@ -154,11 +155,11 @@ class StrainMinerPipeline:
             write_reads_to_file(sol_file, list_of_reads, read_positions)
             write_haplotype_groups(sol_file, haplotypes, window, contig_length, list_of_reads)
             
-            logger.info(f"Completed processing contig {contig_name}: {len(list_of_reads)} reads processed")
+            logger.debug(f"Completed processing contig {contig_name}: {len(list_of_reads)} reads processed")
             return list_of_reads, read_positions
             
         except Exception as e:
-            logger.error(f"Failed to process contig {contig_name}: {e}")
+            logger.critical(f"Failed to process contig {contig_name}: {e}")
             raise RuntimeError(f"Contig processing failed: {e}") from e
 
 
@@ -201,30 +202,38 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
         If pipeline execution fails
     """
     try:
-        logger.info("Starting StrainMiner pipeline execution")
+        logger.debug("Starting StrainMiner pipeline execution")
         
         # Handle backward compatibility for print_mode parameter
         mode_to_set = display_mode or print_mode
         
         # Configure display mode if specified
         if mode_to_set:
-            from ..decorateur.perf import set_display_mode
-            set_display_mode(mode_to_set)
-            logger.info(f"Display mode configured: {mode_to_set}")
+            try:
+                from decorateur.perf import set_display_mode
+                set_display_mode(mode_to_set)
+                logger.debug(f"Display mode configured: {mode_to_set}")
+            except ImportError as e:
+                logger.warning(f"Could not import display mode module: {e}")
 
         # Setup directories
         dir_paths = setup_output_directories(output_dir)
         tmp_dir = dir_paths['tmp_dir']
         
+        logger.debug(f"Temporary directory: {tmp_dir}")
+        
         # Initialize pipeline
         pipeline = StrainMinerPipeline(error_rate, window_size)
         
+        logger.info("Processing BAM file...")
         # Open BAM file
         with ps.AlignmentFile(bam_file, 'rb') as file:
             contigs = file.header.to_dict()['SQ']
             
             if not contigs:
                 raise RuntimeError("No contigs found in BAM file")
+            
+            logger.info(f"Found {len(contigs)} contigs")
             
             # Process each contig
             with open(Path(tmp_dir) / 'reads_haplo.gro', 'w') as sol_file:
@@ -233,24 +242,30 @@ def run_strainminer_pipeline(bam_file: str, assembly_file: str, reads_file: str,
                         file, sol_file, contig, window_size, tmp_dir, error_rate
                     )
         
+        logger.info("Setting up assembly pipeline...")
         # Setup assembly pipeline
         path_to_src = str(Path(__file__).parent.parent.parent)
         gaffile, zipped_GFA, samFile = setup_assembly_pipeline(
             tmp_dir, path_to_src, assembly_file, reads_file, error_rate, bam_file
         )
         
+        logger.info("Running create_new_contigs...")
         # Run assembly steps
         run_create_new_contigs(
             path_to_src, assembly_file, reads_file, error_rate, 
             tmp_dir, samFile, gaffile, zipped_GFA
         )
         
+        logger.info("Running graph unzip...")
         outfile = run_graph_unzip(path_to_src, gaffile, zipped_GFA, output_dir, tmp_dir)
+        
+        logger.info("Converting to FASTA...")
         fasta_file = convert_gfa_to_fasta(path_to_src, outfile)
         
-        logger.info(f"Pipeline completed successfully. Final assembly: {fasta_file}")
+        logger.info(f"Pipeline completed successfully")
         return fasta_file
         
     except Exception as e:
-        logger.error(f"Pipeline execution failed: {e}")
+        logger.critical(f"Pipeline execution failed: {e}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
         raise RuntimeError(f"StrainMiner pipeline failed: {e}") from e

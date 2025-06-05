@@ -229,13 +229,13 @@ def validate_input_files(bam_file: str,
     # Check BAM file
     bam_path = Path(bam_file)
     if not bam_path.exists():
-        logger.error(f"BAM file not found: {bam_file}")
+        logger.critical(f"BAM file not found: {bam_file}")
         validation_passed = False
     elif not bam_path.is_file():
-        logger.error(f"BAM path is not a file: {bam_file}")
+        logger.critical(f"BAM path is not a file: {bam_file}")
         validation_passed = False
     elif not os.access(bam_path, os.R_OK):
-        logger.error(f"BAM file not readable: {bam_file}")
+        logger.critical(f"BAM file not readable: {bam_file}")
         validation_passed = False
     else:
         # Check for BAM index
@@ -251,13 +251,13 @@ def validate_input_files(bam_file: str,
     # Check assembly file
     assembly_path = Path(assembly_file)
     if not assembly_path.exists():
-        logger.error(f"Assembly file not found: {assembly_file}")
+        logger.critical(f"Assembly file not found: {assembly_file}")
         validation_passed = False
     elif not assembly_path.is_file():
-        logger.error(f"Assembly path is not a file: {assembly_file}")
+        logger.critical(f"Assembly path is not a file: {assembly_file}")
         validation_passed = False
     elif not os.access(assembly_path, os.R_OK):
-        logger.error(f"Assembly file not readable: {assembly_file}")
+        logger.critical(f"Assembly file not readable: {assembly_file}")
         validation_passed = False
     elif not assembly_path.suffix.lower() in ['.gfa', '.gfa1', '.gfa2']:
         logger.warning(f"Assembly file extension not recognized as GFA: {assembly_file}")
@@ -265,13 +265,13 @@ def validate_input_files(bam_file: str,
     # Check reads file
     reads_path = Path(reads_file)
     if not reads_path.exists():
-        logger.error(f"Reads file not found: {reads_file}")
+        logger.critical(f"Reads file not found: {reads_file}")
         validation_passed = False
     elif not reads_path.is_file():
-        logger.error(f"Reads path is not a file: {reads_file}")
+        logger.critical(f"Reads path is not a file: {reads_file}")
         validation_passed = False
     elif not os.access(reads_path, os.R_OK):
-        logger.error(f"Reads file not readable: {reads_file}")
+        logger.critical(f"Reads file not readable: {reads_file}")
         validation_passed = False
     
     return validation_passed

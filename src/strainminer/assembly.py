@@ -110,7 +110,7 @@ def run_create_new_contigs(path_to_src: str, originalAssembly: str, readsFile: s
             "minimap2", "racon", "medaka", "samtools", "python", "1"
         ]
         
-        logger.info(f"Running create_new_contigs: {' '.join(command)}")
+        logger.debug(f"Running create_new_contigs: {' '.join(command)}")
         
         with open(os.path.join(tmp_dir, "create_new_contigs.log"), "w") as log_file:
             result = subprocess.run(command, stdout=log_file, stderr=subprocess.STDOUT)
@@ -118,10 +118,10 @@ def run_create_new_contigs(path_to_src: str, originalAssembly: str, readsFile: s
         if result.returncode != 0:
             raise RuntimeError(f"create_new_contigs failed with exit code {result.returncode}")
             
-        logger.info("create_new_contigs completed successfully")
+        logger.debug("create_new_contigs completed successfully")
         
     except Exception as e:
-        logger.error(f"create_new_contigs execution failed: {e}")
+        logger.critical(f"create_new_contigs execution failed: {e}")
         raise RuntimeError(f"Could not run create_new_contigs: {e}") from e
 
 
@@ -164,7 +164,7 @@ def run_graph_unzip(path_to_src: str, gaffile: str, zipped_GFA: str,
             "-o", outfile
         ]
         
-        logger.info(f"Running GraphUnzip: {' '.join(command)}")
+        logger.debug(f"Running GraphUnzip: {' '.join(command)}")
         
         with open(os.path.join(tmp_dir, "logGraphUnzip.txt"), "w") as log_file:
             result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=log_file)
@@ -172,11 +172,11 @@ def run_graph_unzip(path_to_src: str, gaffile: str, zipped_GFA: str,
         if result.returncode != 0:
             raise RuntimeError(f"GraphUnzip failed with exit code {result.returncode}")
             
-        logger.info("GraphUnzip completed successfully")
+        logger.debug("GraphUnzip completed successfully")
         return outfile
         
     except Exception as e:
-        logger.error(f"GraphUnzip execution failed: {e}")
+        logger.critical(f"GraphUnzip execution failed: {e}")
         raise RuntimeError(f"Could not run GraphUnzip: {e}") from e
 
 
@@ -207,7 +207,7 @@ def convert_gfa_to_fasta(path_to_src: str, outfile: str) -> str:
         
         command = [gfa2fa_path, outfile]
         
-        logger.info(f"Converting GFA to FASTA: {' '.join(command)}")
+        logger.debug(f"Converting GFA to FASTA: {' '.join(command)}")
         
         with open(fasta_name, "w") as output_file:
             result = subprocess.run(command, stdout=output_file, stderr=subprocess.PIPE)
@@ -215,11 +215,11 @@ def convert_gfa_to_fasta(path_to_src: str, outfile: str) -> str:
         if result.returncode != 0:
             raise RuntimeError(f"gfa2fa failed with exit code {result.returncode}")
             
-        logger.info(f"FASTA file created: {fasta_name}")
+        logger.debug(f"FASTA file created: {fasta_name}")
         return fasta_name
         
     except Exception as e:
-        logger.error(f"GFA to FASTA conversion failed: {e}")
+        logger.critical(f"GFA to FASTA conversion failed: {e}")
         raise RuntimeError(f"Could not convert GFA to FASTA: {e}") from e
 
 
