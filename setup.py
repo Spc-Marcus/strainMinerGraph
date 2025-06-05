@@ -13,7 +13,7 @@ bitarray_module = Extension(
 # Configuration de base
 setup(
     name='strainminer',
-    version='2.1.0',
+    version='2.2.0',
     description='Outil pour l\'analyse des souches microbiennes',
     packages=find_packages(where="src"),
     package_dir={"": "src"},
