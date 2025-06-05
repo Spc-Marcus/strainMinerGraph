@@ -84,6 +84,7 @@ def create_matrix(dict_of_sus_pos : dict, min_coverage_threshold :int =0.6 ) -> 
             continue
         elif len(allele_counts) == 1:
             # Position monomorphe - tous les reads ont la même valeur
+            majority_allele = allele_counts.index[0]  # Store the single allele
             variant_matrix[col] = 1  # Tous identiques à la référence = 1
         else:
             majority_allele = allele_counts.index[0]  # Plus fréquent (référence)
