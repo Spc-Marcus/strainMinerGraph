@@ -760,7 +760,15 @@ def find_quasi_biclique(
                 # Ajouter des champs optionnels avec des valeurs par défaut
                 rows_added=0
             )
-    
+    # Extract final results after column extension
+    rw = []
+    cl = []
+    for var in model.getVars():
+        if var.VarName.startswith('rw') and var.X > 0.5:
+            rw.append(int(var.VarName.split('[')[1].split(']')[0]))
+        elif var.VarName.startswith('cl') and var.X > 0.5:
+            cl.append(int(var.VarName.split('[')[1].split(']')[0]))
+    logger.debug(f"Final solution after column extension: {len(rw)} rows, {len(cl)} columns")  # GARDER CE LOG
     # AJOUTER un résumé final EN PLUS des logs existants
     if stats and stats.enabled:
         final_status = 'optimal' if model.Status == grb.GRB.OPTIMAL else f'status_{model.Status}'
