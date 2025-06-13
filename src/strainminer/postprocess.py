@@ -250,6 +250,106 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
         
         logger.info(f"Post-processing completed: {len(result_clusters)} distinct strain clusters identified")
         
+        # Calculer les métriques détaillées pour la visualisation
+        processing_time = time.time() - start_time
+        orphaned_count = len(orphaned_reads) if 'orphaned_reads' in locals() else 0
+        total_reads_in_clusters = sum(len(cluster) for cluster in result_clusters)
+        cluster_sizes = [len(cluster) for cluster in result_clusters]
+        reassigned = reassigned_count if 'reassigned_count' in locals() else 0
+        
+        # Créer seulement la visualisation des steps et matrice simplifiée
+        from datetime import datetime
+        from pathlib import Path
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stats_dir = Path("stats")
+        stats_dir.mkdir(exist_ok=True)
+        
+        try:
+            simplified_matrix = create_step_visualization_matrix(matrix, steps, result_clusters, read_names)
+            
+            # Sauvegarder la matrice simplifiée
+            matrix_file = stats_dir / f"simplified_matrix_{timestamp}.txt"
+            
+            with open(matrix_file, 'w', encoding='utf-8') as f:
+                f.write("=== SIMPLIFIED CLUSTERING MATRIX ===\n")
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                f.write(f"Matrix shape: {simplified_matrix.shape[0]} clusters x {simplified_matrix.shape[1]} key positions\n\n")
+                
+                f.write("--- CLUSTERING STEPS SUMMARY ---\n")
+                for step_idx, (reads1, reads0, cols) in enumerate(steps):
+                    f.write(f"Step {step_idx + 1}: Split {len(reads1)} vs {len(reads0)} reads using {len(cols)} positions\n")
+                    f.write(f"  Positions: {cols[:10]}{'...' if len(cols) > 10 else ''}\n")
+                
+                f.write("\n--- SIMPLIFIED MATRIX ---\n")
+                f.write("Clusters (rows) vs Key Positions (columns)\n")
+                
+                # Identifier les colonnes importantes utilisées dans les steps
+                important_cols = set()
+                for _, _, cols in steps:
+                    important_cols.update(cols)
+                important_cols = sorted(list(important_cols))
+                
+                # En-tête des colonnes
+                f.write("Cluster\\Position")
+                for col in important_cols[:20]:  # Limiter à 20 colonnes pour la lisibilité
+                    f.write(f"\t{col}")
+                if len(important_cols) > 20:
+                    f.write("\t...")
+                f.write("\n")
+                
+                # Données de la matrice
+                for cluster_idx in range(simplified_matrix.shape[0]):
+                    f.write(f"Cluster_{cluster_idx + 1}")
+                    for col_idx in range(min(20, simplified_matrix.shape[1])):
+                        f.write(f"\t{int(simplified_matrix[cluster_idx, col_idx])}")
+                    if simplified_matrix.shape[1] > 20:
+                        f.write("\t...")
+                    f.write(f"\t({len(result_clusters[cluster_idx])} reads)")
+                    f.write("\n")
+                
+                f.write("\n--- CLUSTER DETAILS ---\n")
+                for cluster_idx, cluster in enumerate(result_clusters):
+                    f.write(f"Cluster_{cluster_idx + 1}: {len(cluster)} reads\n")
+                    f.write(f"  Representative reads: {', '.join(cluster[:5])}\n")
+                    if len(cluster) > 5:
+                        f.write(f"  ... and {len(cluster) - 5} more\n")
+                
+                f.write("\n--- STEP-BY-STEP VISUALIZATION ---\n")
+                f.write("Hierarchical clustering progression:\n")
+                
+                # Visualiser la progression du clustering
+                current_groups = [list(range(len(read_names)))]
+                f.write(f"Initial: 1 group with {len(read_names)} reads\n")
+                
+                for step_idx, (reads1, reads0, cols) in enumerate(steps):
+                    new_groups = []
+                    for group in current_groups:
+                        group1 = [r for r in group if r in reads1]
+                        group0 = [r for r in group if r in reads0]
+                        if len(group1) > 0:
+                            new_groups.append(group1)
+                        if len(group0) > 0:
+                            new_groups.append(group0)
+                    
+                    current_groups = new_groups
+                    f.write(f"Step {step_idx + 1}: {len(current_groups)} groups - sizes: {[len(g) for g in current_groups]}\n")
+                
+                f.write(f"\nFinal: {len(result_clusters)} strain clusters after post-processing\n")
+                f.write("=== END VISUALIZATION ===\n")
+            
+            logger.info(f"Simplified matrix visualization saved to {matrix_file}")
+            
+            # Sauvegarder aussi en format CSV pour analyse
+            csv_file = stats_dir / f"simplified_matrix_{timestamp}.csv"
+            if simplified_matrix.size > 0:
+                np.savetxt(csv_file, simplified_matrix, delimiter=',', fmt='%d', 
+                          header=f"Simplified matrix: {simplified_matrix.shape[0]} clusters x {simplified_matrix.shape[1]} positions")
+                logger.info(f"Simplified matrix CSV saved to {csv_file}")
+                
+        except Exception as e:
+            logger.warning(f"Failed to create step visualization: {e}")
+        
         # Enregistrer les statistiques de post-processing
         processing_time = time.time() - start_time
         from .stats import get_stats
@@ -297,3 +397,69 @@ def post_processing(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], 
     except Exception as e:
         logger.critical(f"Post-processing failed: {e}")
         raise RuntimeError(f"Could not complete post-processing: {e}") from e
+
+
+def create_step_visualization_matrix(matrix: np.ndarray, steps: List[Tuple[List[int], List[int], List[int]]], 
+                                   result_clusters: List[np.ndarray], read_names: List[str]) -> np.ndarray:
+    """
+    Créer une matrice de visualisation simplifiée montrant les étapes de clustering.
+    
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Matrice binaire originale
+    steps : List[Tuple[List[int], List[int], List[int]]]
+        Étapes de clustering
+    result_clusters : List[np.ndarray]
+        Clusters finaux
+    read_names : List[str]
+        Noms des reads
+        
+    Returns
+    -------
+    np.ndarray
+        Matrice simplifiée avec lignes et colonnes fusionnées
+    """
+    # Créer un mapping des reads vers leurs clusters finaux
+    read_to_cluster = {}
+    for cluster_idx, cluster in enumerate(result_clusters):
+        for read_name in cluster:
+            read_idx = read_names.index(read_name) if read_name in read_names else -1
+            if read_idx >= 0:
+                read_to_cluster[read_idx] = cluster_idx
+    
+    # Identifier les colonnes importantes utilisées dans les steps
+    important_cols = set()
+    for _, _, cols in steps:
+        important_cols.update(cols)
+    important_cols = sorted(list(important_cols))
+    
+    # Créer la matrice simplifiée
+    n_clusters = len(result_clusters)
+    n_important_cols = len(important_cols)
+    
+    if n_clusters == 0 or n_important_cols == 0:
+        return np.array([])
+    
+    simplified_matrix = np.zeros((n_clusters, n_important_cols))
+    
+    # Calculer les valeurs moyennes pour chaque cluster sur les colonnes importantes
+    for cluster_idx, cluster in enumerate(result_clusters):
+        read_indices = []
+        for read_name in cluster:
+            if read_name in read_names:
+                read_idx = read_names.index(read_name)
+                read_indices.append(read_idx)
+        
+        if read_indices:
+            cluster_data = matrix[read_indices]
+            for col_idx, original_col in enumerate(important_cols):
+                if original_col < matrix.shape[1]:
+                    col_data = cluster_data[:, original_col]
+                    valid_data = col_data[col_data != -1]
+                    if len(valid_data) > 0:
+                        simplified_matrix[cluster_idx, col_idx] = np.round(np.mean(valid_data))
+                    else:
+                        simplified_matrix[cluster_idx, col_idx] = 0
+    
+    return simplified_matrix
